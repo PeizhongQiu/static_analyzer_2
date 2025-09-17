@@ -44,8 +44,9 @@ FunctionCallInfo FunctionCallAnalyzer::analyzeDirectCall(CallInst *CI, Function 
         info.argument_types.push_back(std::to_string(arg->getType()->getTypeID()));
     }
     
-    // 添加源码位置
-    if (auto *DI = CI->getDebugLoc()) {
+    // 添加源码位置 - 修复DebugLoc处理
+    const DebugLoc &DI = CI->getDebugLoc();
+    if (DI) {
         info.source_location = DI->getFilename().str() + ":" + 
                              std::to_string(DI->getLine());
     }
@@ -78,8 +79,9 @@ std::vector<FunctionCallInfo> FunctionCallAnalyzer::analyzeIndirectCall(CallInst
         info.confidence = 10;
         info.analysis_reason = "unresolved_function_pointer";
         
-        // 添加源码位置
-        if (auto *DI = CI->getDebugLoc()) {
+        // 添加源码位置 - 修复DebugLoc处理
+        const DebugLoc &DI = CI->getDebugLoc();
+        if (DI) {
             info.source_location = DI->getFilename().str() + ":" + 
                                  std::to_string(DI->getLine());
         }
@@ -103,8 +105,9 @@ std::vector<FunctionCallInfo> FunctionCallAnalyzer::analyzeIndirectCall(CallInst
             info.argument_types.push_back(std::to_string(arg->getType()->getTypeID()));
         }
         
-        // 添加源码位置
-        if (auto *DI = CI->getDebugLoc()) {
+        // 添加源码位置 - 修复DebugLoc处理
+        const DebugLoc &DI = CI->getDebugLoc();
+        if (DI) {
             info.source_location = DI->getFilename().str() + ":" + 
                                  std::to_string(DI->getLine());
         }
@@ -146,16 +149,16 @@ bool FunctionCallAnalyzer::isKernelFunction(const std::string& func_name) {
         }
     }
     
-    // 检查一些常见的内核函数模式
-    return func_name.starts_with("__") ||        // 内核内部函数
-           func_name.starts_with("sys_") ||      // 系统调用
-           func_name.starts_with("do_") ||       // 内核do_函数
-           func_name.contains("_lock") ||        // 锁相关函数
-           func_name.contains("alloc") ||        // 内存分配函数
-           func_name.contains("free") ||         // 内存释放函数
-           func_name.starts_with("get_") ||      // getter函数
-           func_name.starts_with("put_") ||      // putter函数
-           func_name.starts_with("find_") ||     // 查找函数
-           func_name.starts_with("init_") ||     // 初始化函数
-           func_name.starts_with("exit_");       // 退出函数
+    // 检查一些常见的内核函数模式 - 使用兼容的字符串方法
+    return (func_name.size() >= 2 && func_name.substr(0, 2) == "__") ||        // 内核内部函数
+           (func_name.size() >= 4 && func_name.substr(0, 4) == "sys_") ||      // 系统调用
+           (func_name.size() >= 3 && func_name.substr(0, 3) == "do_") ||       // 内核do_函数
+           (func_name.find("_lock") != std::string::npos) ||        // 锁相关函数
+           (func_name.find("alloc") != std::string::npos) ||        // 内存分配函数
+           (func_name.find("free") != std::string::npos) ||         // 内存释放函数
+           (func_name.size() >= 4 && func_name.substr(0, 4) == "get_") ||      // getter函数
+           (func_name.size() >= 4 && func_name.substr(0, 4) == "put_") ||      // putter函数
+           (func_name.size() >= 5 && func_name.substr(0, 5) == "find_") ||     // 查找函数
+           (func_name.size() >= 5 && func_name.substr(0, 5) == "init_") ||     // 初始化函数
+           (func_name.size() >= 5 && func_name.substr(0, 5) == "exit_");       // 退出函数
 }

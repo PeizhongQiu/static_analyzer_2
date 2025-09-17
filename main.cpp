@@ -19,7 +19,7 @@
 using namespace llvm;
 
 //===----------------------------------------------------------------------===//
-// 命令行参数定义
+// 命令行参数定义 - 使用唯一的选项名避免冲突
 //===----------------------------------------------------------------------===//
 
 static cl::opt<std::string> CompileCommandsPath("compile-commands",
@@ -37,22 +37,33 @@ static cl::opt<std::string> OutputPath("output",
     cl::value_desc("filename"),
     cl::init("irq_analysis_results.json"));
 
-static cl::opt<bool> Verbose("verbose",
+static cl::opt<bool> VerboseOutput("verbose",
     cl::desc("Enable verbose output"),
     cl::init(false));
 
-static cl::opt<bool> ShowStatistics("stats",
+static cl::opt<bool> ShowAnalysisStatistics("show-stats",
     cl::desc("Show analysis statistics"),
     cl::init(false));
 
 //===----------------------------------------------------------------------===//
-// 主程序
+// 主程序 - 添加命令行选项冲突处理
 //===----------------------------------------------------------------------===//
 
 int main(int argc, char **argv) {
+    // 设置程序名和描述
+    cl::SetVersionPrinter([](raw_ostream &OS) {
+        OS << "LLVM Interrupt Handler Analyzer 1.0\n";
+    });
+    
+    // 添加程序描述
+    cl::AddExtraVersionPrinter([](raw_ostream &OS) {
+        OS << "Static analysis tool for interrupt handlers in kernel code\n";
+    });
+    
+    // 解析命令行参数，捕获潜在的冲突
     cl::ParseCommandLineOptions(argc, argv, "LLVM Interrupt Handler Analyzer\n");
     
-    if (Verbose) {
+    if (VerboseOutput) {
         outs() << "Starting IRQ Analysis...\n";
         outs() << "Compile commands: " << CompileCommandsPath << "\n";
         outs() << "Handler definitions: " << HandlerJsonPath << "\n";
@@ -66,7 +77,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     
-    if (Verbose) {
+    if (VerboseOutput) {
         outs() << "Found " << parser.getCommandCount() << " compile commands\n";
     }
     
@@ -87,13 +98,13 @@ int main(int argc, char **argv) {
     
     // 逐个分析bitcode文件
     for (const std::string& bc_file : bitcode_files) {
-        if (Verbose) {
+        if (VerboseOutput) {
             outs() << "Analyzing bitcode file: " << bc_file << "\n";
         }
         
         // 检查文件是否存在
         if (!sys::fs::exists(bc_file)) {
-            if (Verbose) {
+            if (VerboseOutput) {
                 outs() << "Skipping non-existent file: " << bc_file << "\n";
             }
             files_skipped++;
@@ -103,12 +114,14 @@ int main(int argc, char **argv) {
         // 加载LLVM IR
         std::unique_ptr<Module> M = parseIRFile(bc_file, Err, Context);
         if (!M) {
-            errs() << "Error loading " << bc_file << ": " << Err.getMessage() << "\n";
+            if (VerboseOutput) {
+                errs() << "Error loading " << bc_file << ": " << Err.getMessage() << "\n";
+            }
             files_skipped++;
             continue;
         }
         
-        // 运行分析pass
+        // 创建pass manager，避免重复注册
         legacy::PassManager PM;
         
         // 添加必需的分析pass
@@ -119,17 +132,17 @@ int main(int argc, char **argv) {
         PM.add(analysis_pass);
         
         // 运行pass
-        PM.run(*M);
-        
-        files_analyzed++;
-        
-        if (ShowStatistics) {
-            outs() << "File: " << bc_file << " - Functions analyzed\n";
+        bool changed = PM.run(*M);
+        if (changed || VerboseOutput) {
+            files_analyzed++;
+            if (ShowAnalysisStatistics) {
+                outs() << "File: " << bc_file << " - Analysis completed\n";
+            }
         }
     }
     
     // 输出统计信息
-    if (ShowStatistics || Verbose) {
+    if (ShowAnalysisStatistics || VerboseOutput) {
         outs() << "\n=== Analysis Statistics ===\n";
         outs() << "Files found: " << bitcode_files.size() << "\n";
         outs() << "Files analyzed: " << files_analyzed << "\n";
@@ -139,6 +152,10 @@ int main(int argc, char **argv) {
     
     if (files_analyzed == 0) {
         errs() << "No files were successfully analyzed!\n";
+        errs() << "Please check:\n";
+        errs() << "1. Bitcode files exist (.bc extension)\n";
+        errs() << "2. Files are valid LLVM IR\n";
+        errs() << "3. Compile commands are correct\n";
         return 1;
     }
     

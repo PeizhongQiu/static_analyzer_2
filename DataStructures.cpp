@@ -27,6 +27,11 @@ const char* getAccessTypeName(MemoryAccessInfo::AccessType type) {
     }
 }
 
+// 重载版本，接受int类型（用于JSON输出）
+const char* getAccessTypeName(int type) {
+    return getAccessTypeName(static_cast<MemoryAccessInfo::AccessType>(type));
+}
+
 const char* getPointerChainElementTypeName(PointerChainElement::ElementType type) {
     switch (type) {
         case PointerChainElement::GLOBAL_VAR_BASE:
@@ -46,6 +51,11 @@ const char* getPointerChainElementTypeName(PointerChainElement::ElementType type
         default:
             return "UNKNOWN";
     }
+}
+
+// 重载版本，接受int类型（用于JSON输出）
+const char* getPointerChainElementTypeName(int type) {
+    return getPointerChainElementTypeName(static_cast<PointerChainElement::ElementType>(type));
 }
 
 // 用于fuzzing的实用函数

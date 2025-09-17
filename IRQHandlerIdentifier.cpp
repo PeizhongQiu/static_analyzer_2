@@ -43,14 +43,14 @@ bool InterruptHandlerIdentifier::parseHandlerJsonFile(const std::string& json_fi
     
     // 解析每个组合，只提取handler名称
     for (const json::Value &Combination : *CombinationsArray) {
-        json::Object *CombObj = Combination.getAsObject();
+        const json::Object *CombObj = Combination.getAsObject();
         if (!CombObj) continue;
         
         total_entries++;
         
         // 获取handler名称
         if (auto Handler = CombObj->getString("handler")) {
-            std::string handler_name = *Handler;
+            std::string handler_name = std::string(*Handler);
             
             // 检查是否重复
             if (unique_handlers.find(handler_name) != unique_handlers.end()) {

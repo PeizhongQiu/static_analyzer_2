@@ -49,10 +49,10 @@ std::string PointerChain::toString() const {
 std::vector<MemoryAccessInfo> MemoryAccessAnalyzer::analyzeFunction(Function &F) {
     std::vector<MemoryAccessInfo> accesses;
     
-    // 清空缓存（每个函数重新开始）
+    // Clear cache (restart for each function)
     pointer_chain_cache.clear();
     
-    // 检查函数是否是中断处理函数签名
+    // Check if function is IRQ handler signature
     bool is_irq_handler = isIRQHandlerFunction(F);
     
     for (auto &BB : F) {
@@ -78,8 +78,9 @@ std::vector<MemoryAccessInfo> MemoryAccessAnalyzer::analyzeFunction(Function &F)
                 info.is_atomic = true;
             }
             
-            // 添加源码位置信息
-            if (auto *DI = I.getDebugLoc()) {
+            // Add source location information - Fixed DebugLoc handling
+            const DebugLoc &DI = I.getDebugLoc();
+            if (DI) {
                 info.source_location = DI->getFilename().str() + ":" + 
                                      std::to_string(DI->getLine());
             }
@@ -94,7 +95,7 @@ std::vector<MemoryAccessInfo> MemoryAccessAnalyzer::analyzeFunction(Function &F)
 }
 
 bool MemoryAccessAnalyzer::isIRQHandlerFunction(Function &F) {
-    // 检查中断处理函数签名：irqreturn_t handler(int irq, void *dev_id)
+    // Check IRQ handler signature: irqreturn_t handler(int irq, void *dev_id)
     if (F.getReturnType()->isIntegerTy() && F.arg_size() == 2) {
         auto arg_it = F.arg_begin();
         Type *first_arg_type = arg_it->getType();
@@ -108,13 +109,13 @@ bool MemoryAccessAnalyzer::isIRQHandlerFunction(Function &F) {
 PointerChain MemoryAccessAnalyzer::tracePointerChain(Value *ptr, int depth) {
     PointerChain chain;
     
-    // 防止递归过深
+    // Prevent excessive recursion
     if (depth > MAX_CHAIN_DEPTH) {
         chain.confidence = 10;
         return chain;
     }
     
-    // 检查缓存
+    // Check cache
     if (pointer_chain_cache.find(ptr) != pointer_chain_cache.end()) {
         return pointer_chain_cache[ptr];
     }
@@ -122,7 +123,7 @@ PointerChain MemoryAccessAnalyzer::tracePointerChain(Value *ptr, int depth) {
     PointerChainElement element;
     
     if (auto *GV = dyn_cast<GlobalVariable>(ptr)) {
-        // 全局变量 - 链的起点
+        // Global variable - chain starting point
         element.type = PointerChainElement::GLOBAL_VAR_BASE;
         element.symbol_name = GV->getName().str();
         element.llvm_value = ptr;
@@ -131,7 +132,7 @@ PointerChain MemoryAccessAnalyzer::tracePointerChain(Value *ptr, int depth) {
         chain.is_complete = true;
         
     } else if (auto *Arg = dyn_cast<Argument>(ptr)) {
-        // 函数参数 - 需要特别处理中断处理函数的参数
+        // Function argument - special handling for IRQ handler arguments
         Function *F = Arg->getParent();
         if (isIRQHandlerFunction(*F)) {
             if (Arg->getArgNo() == 0) {
@@ -146,7 +147,7 @@ PointerChain MemoryAccessAnalyzer::tracePointerChain(Value *ptr, int depth) {
             chain.confidence = 90;
             chain.is_complete = true;
         } else {
-            // 非中断处理函数的参数，置信度较低
+            // Non-IRQ handler function argument, lower confidence
             element.type = PointerChainElement::DIRECT_LOAD;
             element.symbol_name = "func_arg_" + std::to_string(Arg->getArgNo());
             element.llvm_value = ptr;
@@ -156,10 +157,10 @@ PointerChain MemoryAccessAnalyzer::tracePointerChain(Value *ptr, int depth) {
         }
         
     } else if (auto *GEP = dyn_cast<GetElementPtrInst>(ptr)) {
-        // GEP指令 - 需要递归追踪基指针
+        // GEP instruction - need to recursively trace base pointer
         PointerChain base_chain = tracePointerChain(GEP->getPointerOperand(), depth + 1);
         
-        // 分析GEP操作
+        // Analyze GEP operation
         element.type = PointerChainElement::STRUCT_FIELD_DEREF;
         element.llvm_value = ptr;
         
@@ -167,7 +168,7 @@ PointerChain MemoryAccessAnalyzer::tracePointerChain(Value *ptr, int depth) {
         if (auto *struct_type = dyn_cast<StructType>(source_type)) {
             element.struct_type_name = struct_type->getName().str();
             
-            // 获取字段索引
+            // Get field index
             if (GEP->getNumOperands() >= 3) {
                 if (auto *CI = dyn_cast<ConstantInt>(GEP->getOperand(2))) {
                     element.offset = CI->getSExtValue();
@@ -182,27 +183,27 @@ PointerChain MemoryAccessAnalyzer::tracePointerChain(Value *ptr, int depth) {
             }
         }
         
-        // 合并基链和当前元素
+        // Merge base chain and current element
         chain.elements = base_chain.elements;
         chain.elements.push_back(element);
         chain.confidence = std::max(base_chain.confidence - 5, 40);
         chain.is_complete = base_chain.is_complete;
         
     } else if (auto *LI = dyn_cast<LoadInst>(ptr)) {
-        // Load指令 - 间接访问，需要追踪被load的指针
+        // Load instruction - indirect access, trace the loaded pointer
         PointerChain loaded_chain = tracePointerChain(LI->getPointerOperand(), depth + 1);
         
         element.type = PointerChainElement::DIRECT_LOAD;
         element.llvm_value = ptr;
         
-        // 这是一个解引用操作
+        // This is a dereference operation
         chain.elements = loaded_chain.elements;
         chain.elements.push_back(element);
         chain.confidence = std::max(loaded_chain.confidence - 10, 30);
         chain.is_complete = loaded_chain.is_complete;
         
     } else if (auto *CI = dyn_cast<ConstantInt>(ptr)) {
-        // 常量指针
+        // Constant pointer
         element.type = PointerChainElement::CONSTANT_OFFSET;
         element.offset = CI->getSExtValue();
         element.llvm_value = ptr;
@@ -211,16 +212,16 @@ PointerChain MemoryAccessAnalyzer::tracePointerChain(Value *ptr, int depth) {
         chain.is_complete = true;
         
     } else if (auto *CE = dyn_cast<ConstantExpr>(ptr)) {
-        // 常量表达式，可能是全局变量的地址计算
+        // Constant expression, possibly global variable address calculation
         if (CE->getOpcode() == Instruction::GetElementPtr) {
-            // 分析常量GEP
+            // Analyze constant GEP
             if (auto *GV = dyn_cast<GlobalVariable>(CE->getOperand(0))) {
                 element.type = PointerChainElement::GLOBAL_VAR_BASE;
                 element.symbol_name = GV->getName().str();
                 element.llvm_value = ptr;
                 chain.elements.push_back(element);
                 
-                // 如果有偏移，添加偏移元素
+                // If there's an offset, add offset element
                 if (CE->getNumOperands() > 2) {
                     if (auto *offset_CI = dyn_cast<ConstantInt>(CE->getOperand(2))) {
                         PointerChainElement offset_elem;
@@ -237,7 +238,7 @@ PointerChain MemoryAccessAnalyzer::tracePointerChain(Value *ptr, int depth) {
         }
         
     } else if (auto *PHI = dyn_cast<PHINode>(ptr)) {
-        // PHI节点 - 合并多个可能的指针来源
+        // PHI node - merge multiple possible pointer sources
         std::vector<PointerChain> incoming_chains;
         int total_confidence = 0;
         
@@ -248,14 +249,14 @@ PointerChain MemoryAccessAnalyzer::tracePointerChain(Value *ptr, int depth) {
         }
         
         if (!incoming_chains.empty()) {
-            // 使用第一个链作为基础，但降低置信度
+            // Use first chain as base, but reduce confidence
             chain = incoming_chains[0];
-            chain.confidence = total_confidence / incoming_chains.size() * 0.8; // 降低20%
-            chain.is_complete = false; // PHI节点使得分析不完整
+            chain.confidence = total_confidence / incoming_chains.size() * 0.8; // Reduce by 20%
+            chain.is_complete = false; // PHI node makes analysis incomplete
         }
         
     } else {
-        // 其他情况 - 无法追踪
+        // Other cases - cannot trace
         element.type = PointerChainElement::DIRECT_LOAD;
         element.symbol_name = "unknown";
         element.llvm_value = ptr;
@@ -264,7 +265,7 @@ PointerChain MemoryAccessAnalyzer::tracePointerChain(Value *ptr, int depth) {
         chain.is_complete = false;
     }
     
-    // 缓存结果
+    // Cache result
     pointer_chain_cache[ptr] = chain;
     return chain;
 }
@@ -274,18 +275,18 @@ MemoryAccessInfo MemoryAccessAnalyzer::analyzeLoadStoreWithChain(Value *ptr, boo
     MemoryAccessInfo info;
     info.is_write = is_write;
     
-    // 设置访问大小
+    // Set access size
     if (DL && accessed_type) {
         info.access_size = DL->getTypeStoreSize(accessed_type);
     }
     
-    // 追踪完整的指针链
+    // Trace complete pointer chain
     PointerChain chain = tracePointerChain(ptr);
     info.pointer_chain = chain;
     info.chain_description = chain.toString();
     info.confidence = chain.confidence;
     
-    // 根据链的分析结果设置访问类型
+    // Set access type based on chain analysis
     if (chain.elements.empty()) {
         info.type = MemoryAccessInfo::INDIRECT_ACCESS;
         info.confidence = 20;
@@ -294,26 +295,26 @@ MemoryAccessInfo MemoryAccessAnalyzer::analyzeLoadStoreWithChain(Value *ptr, boo
         const auto& last_elem = chain.elements.back();
         
         if (first_elem.type == PointerChainElement::GLOBAL_VAR_BASE && chain.elements.size() == 1) {
-            // 直接全局变量访问
+            // Direct global variable access
             info.type = MemoryAccessInfo::GLOBAL_VARIABLE;
             info.symbol_name = first_elem.symbol_name;
             
         } else if (first_elem.type == PointerChainElement::IRQ_HANDLER_ARG0) {
-            // 通过irq参数访问（通常很少见）
+            // Access through irq parameter (usually rare)
             info.type = MemoryAccessInfo::IRQ_HANDLER_IRQ_ACCESS;
             info.symbol_name = "irq_param";
             
         } else if (first_elem.type == PointerChainElement::IRQ_HANDLER_ARG1) {
-            // 通过dev_id参数访问（最常见的中断处理函数访问模式）
+            // Access through dev_id parameter (most common IRQ handler access pattern)
             if (chain.elements.size() == 1) {
-                // 直接访问dev_id参数本身
+                // Direct access to dev_id parameter itself
                 info.type = MemoryAccessInfo::IRQ_HANDLER_DEV_ID_ACCESS;
                 info.symbol_name = "dev_id_param";
             } else {
-                // 通过dev_id的指针链访问
+                // Access through dev_id pointer chain
                 info.type = MemoryAccessInfo::POINTER_CHAIN_ACCESS;
                 
-                // 构建更详细的符号名，便于fuzzing使用
+                // Build detailed symbol name for fuzzing use
                 std::string detailed_name = "dev_id";
                 for (size_t i = 1; i < chain.elements.size(); ++i) {
                     const auto& elem = chain.elements[i];
@@ -332,7 +333,7 @@ MemoryAccessInfo MemoryAccessAnalyzer::analyzeLoadStoreWithChain(Value *ptr, boo
                 }
                 info.symbol_name = detailed_name;
                 
-                // 设置最终访问的结构体信息
+                // Set final accessed struct info
                 if (last_elem.type == PointerChainElement::STRUCT_FIELD_DEREF) {
                     info.struct_type_name = last_elem.struct_type_name;
                     info.offset = last_elem.offset;
@@ -340,10 +341,10 @@ MemoryAccessInfo MemoryAccessAnalyzer::analyzeLoadStoreWithChain(Value *ptr, boo
             }
             
         } else if (chain.elements.size() > 1) {
-            // 其他多级指针链访问
+            // Other multi-level pointer chain access
             info.type = MemoryAccessInfo::POINTER_CHAIN_ACCESS;
             
-            // 设置最终访问的结构体信息
+            // Set final accessed struct info
             if (last_elem.type == PointerChainElement::STRUCT_FIELD_DEREF) {
                 info.struct_type_name = last_elem.struct_type_name;
                 info.offset = last_elem.offset;
@@ -352,11 +353,11 @@ MemoryAccessInfo MemoryAccessAnalyzer::analyzeLoadStoreWithChain(Value *ptr, boo
                 info.offset = last_elem.offset;
             }
             
-            // 构建符号名
+            // Build symbol name
             info.symbol_name = chain.toString();
             
         } else {
-            // 单个元素的其他类型
+            // Single element of other types
             if (first_elem.type == PointerChainElement::CONSTANT_OFFSET) {
                 info.type = MemoryAccessInfo::CONSTANT_ADDRESS;
                 info.offset = first_elem.offset;
@@ -366,6 +367,12 @@ MemoryAccessInfo MemoryAccessAnalyzer::analyzeLoadStoreWithChain(Value *ptr, boo
                 info.symbol_name = first_elem.symbol_name;
             }
         }
+    }
+    
+    // Use is_irq_handler parameter to adjust confidence for IRQ-specific accesses
+    if (is_irq_handler && (info.type == MemoryAccessInfo::IRQ_HANDLER_DEV_ID_ACCESS ||
+                          info.type == MemoryAccessInfo::IRQ_HANDLER_IRQ_ACCESS)) {
+        info.confidence = std::min(info.confidence + 10, 100); // Boost confidence in IRQ context
     }
     
     return info;
@@ -379,13 +386,13 @@ MemoryAccessInfo MemoryAccessAnalyzer::analyzeGEPInstruction(GetElementPtrInst *
         info.type = MemoryAccessInfo::STRUCT_FIELD_ACCESS;
         info.struct_type_name = struct_type->getName().str();
         
-        // 计算字段偏移
+        // Calculate field offset
         if (GEP->getNumOperands() >= 3) {
             if (auto *CI = dyn_cast<ConstantInt>(GEP->getOperand(2))) {
                 info.offset = CI->getSExtValue();
                 info.confidence = 90;
                 
-                // 获取字段类型信息
+                // Get field type info
                 if (info.offset < struct_type->getNumElements()) {
                     Type *field_type = struct_type->getElementType(info.offset);
                     if (DL) {
@@ -398,7 +405,7 @@ MemoryAccessInfo MemoryAccessAnalyzer::analyzeGEPInstruction(GetElementPtrInst *
         info.type = MemoryAccessInfo::ARRAY_ELEMENT;
         info.confidence = 80;
         
-        // 获取数组索引
+        // Get array index
         if (GEP->getNumOperands() >= 3) {
             if (auto *CI = dyn_cast<ConstantInt>(GEP->getOperand(2))) {
                 info.offset = CI->getSExtValue();
@@ -419,7 +426,7 @@ MemoryAccessInfo MemoryAccessAnalyzer::analyzeGlobalVariable(GlobalVariable *GV)
         info.access_size = DL->getTypeStoreSize(GV->getValueType());
     }
     
-    // 创建简单的指针链
+    // Create simple pointer chain
     PointerChainElement elem;
     elem.type = PointerChainElement::GLOBAL_VAR_BASE;
     elem.symbol_name = GV->getName().str();
@@ -434,7 +441,7 @@ MemoryAccessInfo MemoryAccessAnalyzer::analyzeGlobalVariable(GlobalVariable *GV)
 }
 
 MemoryAccessInfo MemoryAccessAnalyzer::analyzeLoadStore(Value *ptr, bool is_write) {
-    // 保留旧的简单分析方法作为后备
+    // Keep old simple analysis method as fallback
     MemoryAccessInfo info;
     info.is_write = is_write;
     
@@ -450,7 +457,7 @@ MemoryAccessInfo MemoryAccessAnalyzer::analyzeLoadStore(Value *ptr, bool is_writ
         info.confidence = 100;
         
     } else if (isa<Argument>(ptr)) {
-        info.type = MemoryAccessInfo::IRQ_HANDLER_DEV_ID_ACCESS; // 假设是dev_id
+        info.type = MemoryAccessInfo::IRQ_HANDLER_DEV_ID_ACCESS; // Assume dev_id
         info.confidence = 60;
     } else {
         info.type = MemoryAccessInfo::INDIRECT_ACCESS;

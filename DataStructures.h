@@ -17,14 +17,6 @@
 using namespace llvm;
 
 //===----------------------------------------------------------------------===//
-// 前向声明和辅助函数
-//===----------------------------------------------------------------------===//
-
-// 用于调试和输出的字符串转换函数
-const char* getAccessTypeName(int type);
-const char* getPointerChainElementTypeName(int type);
-
-//===----------------------------------------------------------------------===//
 // 指针链追踪数据结构
 //===----------------------------------------------------------------------===//
 
@@ -97,6 +89,18 @@ struct MemoryAccessInfo {
     bool isWriteAccess() const;
     std::string getFuzzingTargetDescription() const;
 };
+
+//===----------------------------------------------------------------------===//
+// 用于调试和输出的字符串转换函数
+//===----------------------------------------------------------------------===//
+
+// 现在可以使用完整的类型定义
+const char* getAccessTypeName(MemoryAccessInfo::AccessType type);
+const char* getPointerChainElementTypeName(PointerChainElement::ElementType type);
+
+// 重载版本，接受int类型（用于JSON输出）
+const char* getAccessTypeName(int type);
+const char* getPointerChainElementTypeName(int type);
 
 //===----------------------------------------------------------------------===//
 // 寄存器访问分析数据结构

@@ -70,9 +70,6 @@ json::Object JSONOutputGenerator::convertPointerChainElement(const PointerChainE
         case PointerChainElement::ARRAY_INDEX_DEREF:
             description = "Array element access: index " + std::to_string(elem.offset);
             break;
-        case PointerChainElement::DIRECT_LOAD:
-            description = "Pointer dereference: " + elem.symbol_name;
-            break;
         case PointerChainElement::CONSTANT_OFFSET:
             description = "Constant address: 0x" + std::to_string(elem.offset);
             break;
@@ -122,7 +119,6 @@ json::Object JSONOutputGenerator::convertFunctionPointerTarget(const FunctionPoi
     return target_obj;
 }
 
-json::Object JSONOutputGenerator::convertIndirectCallAnalysis(const IndirectCallAnalysis& indirect) {
 json::Object JSONOutputGenerator::convertIndirectCallAnalysis(const IndirectCallAnalysis& indirect) {
     json::Object indirect_obj;
     
