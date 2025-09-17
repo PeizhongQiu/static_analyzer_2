@@ -1,0 +1,1 @@
+{"total_unique_combinations": 6, "combinations": [{"handler": "test_handler1"}, {"handler": "test_handler2"}, {"handler": "test_handler1"}, {"handler": "test_handler3"}, {"handler": "test_handler2"}]}
