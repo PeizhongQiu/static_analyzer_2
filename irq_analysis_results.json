@@ -1,5 +1,5 @@
 {
-  "analysis_timestamp": 1758199037,
+  "analysis_timestamp": 1758207696,
   "global_statistics": {
     "total_dev_id_accesses": 0,
     "total_function_calls": 47,
@@ -590,7 +590,7 @@
           "function_pointer_analysis": {
             "high_confidence_targets": 0,
             "is_resolved": false,
-            "pointer_name": "unnamed_94029385607008",
+            "pointer_name": "unnamed_93997053507184",
             "possible_targets": [],
             "total_targets": 0
           }
