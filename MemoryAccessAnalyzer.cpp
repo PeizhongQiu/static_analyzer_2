@@ -1,4 +1,4 @@
-//===- MemoryAccessAnalyzer.cpp - Memory Access Analyzer Implementation ===//
+//===- MemoryAccessAnalyzer.cpp - Safe Memory Access Analyzer -----------===//
 
 #include "MemoryAccessAnalyzer.h"
 #include "llvm/IR/Instructions.h"
@@ -46,6 +46,33 @@ std::string PointerChain::toString() const {
     return result;
 }
 
+// 安全的编译器符号检查
+bool MemoryAccessAnalyzer::isCompilerGeneratedSymbol(const std::string& symbol_name) const {
+    // 安全检查：空字符串直接返回false
+    if (symbol_name.empty()) {
+        return false;
+    }
+    
+    // 只过滤最明显的LLVM gcov符号，避免过度过滤
+    if (symbol_name.find("__llvm_gcov_ctr") != std::string::npos) {
+        return true;
+    }
+    
+    // 可以根据需要添加更多过滤规则，但要谨慎
+    return false;
+}
+
+// 安全的指针链检查
+bool MemoryAccessAnalyzer::containsCompilerGeneratedSymbol(const PointerChain& chain) const {
+    for (const auto& elem : chain.elements) {
+        // 安全检查：确保symbol_name不为空再检查
+        if (!elem.symbol_name.empty() && isCompilerGeneratedSymbol(elem.symbol_name)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::vector<MemoryAccessInfo> MemoryAccessAnalyzer::analyzeFunction(Function &F) {
     std::vector<MemoryAccessInfo> accesses;
     
@@ -85,8 +112,31 @@ std::vector<MemoryAccessInfo> MemoryAccessAnalyzer::analyzeFunction(Function &F)
                                      std::to_string(DI->getLine());
             }
             
+            // 只有置信度大于0才考虑
             if (info.confidence > 0) {
-                accesses.push_back(info);
+                // 应用过滤逻辑，但更加保守
+                bool should_filter = false;
+                
+                // 安全检查：只在字符串非空时检查
+                if (!info.symbol_name.empty() && isCompilerGeneratedSymbol(info.symbol_name)) {
+                    should_filter = true;
+                }
+                
+                // 检查指针链中的符号
+                if (!should_filter && containsCompilerGeneratedSymbol(info.pointer_chain)) {
+                    should_filter = true;
+                }
+                
+                // 检查链描述
+                if (!should_filter && !info.chain_description.empty() && 
+                    isCompilerGeneratedSymbol(info.chain_description)) {
+                    should_filter = true;
+                }
+                
+                // 如果不需要过滤，添加到结果中
+                if (!should_filter) {
+                    accesses.push_back(info);
+                }
             }
         }
     }
@@ -115,6 +165,12 @@ PointerChain MemoryAccessAnalyzer::tracePointerChain(Value *ptr, int depth) {
         return chain;
     }
     
+    // 安全检查：确保ptr不为空
+    if (!ptr) {
+        chain.confidence = 0;
+        return chain;
+    }
+    
     // Check cache
     if (pointer_chain_cache.find(ptr) != pointer_chain_cache.end()) {
         return pointer_chain_cache[ptr];
@@ -134,7 +190,7 @@ PointerChain MemoryAccessAnalyzer::tracePointerChain(Value *ptr, int depth) {
     } else if (auto *Arg = dyn_cast<Argument>(ptr)) {
         // Function argument - special handling for IRQ handler arguments
         Function *F = Arg->getParent();
-        if (isIRQHandlerFunction(*F)) {
+        if (F && isIRQHandlerFunction(*F)) {
             if (Arg->getArgNo() == 0) {
                 element.type = PointerChainElement::IRQ_HANDLER_ARG0;
                 element.symbol_name = "irq";
@@ -158,49 +214,55 @@ PointerChain MemoryAccessAnalyzer::tracePointerChain(Value *ptr, int depth) {
         
     } else if (auto *GEP = dyn_cast<GetElementPtrInst>(ptr)) {
         // GEP instruction - need to recursively trace base pointer
-        PointerChain base_chain = tracePointerChain(GEP->getPointerOperand(), depth + 1);
-        
-        // Analyze GEP operation
-        element.type = PointerChainElement::STRUCT_FIELD_DEREF;
-        element.llvm_value = ptr;
-        
-        Type *source_type = GEP->getSourceElementType();
-        if (auto *struct_type = dyn_cast<StructType>(source_type)) {
-            element.struct_type_name = struct_type->getName().str();
+        Value *basePtr = GEP->getPointerOperand();
+        if (basePtr) {
+            PointerChain base_chain = tracePointerChain(basePtr, depth + 1);
             
-            // Get field index
-            if (GEP->getNumOperands() >= 3) {
-                if (auto *CI = dyn_cast<ConstantInt>(GEP->getOperand(2))) {
-                    element.offset = CI->getSExtValue();
+            // Analyze GEP operation
+            element.type = PointerChainElement::STRUCT_FIELD_DEREF;
+            element.llvm_value = ptr;
+            
+            Type *source_type = GEP->getSourceElementType();
+            if (auto *struct_type = dyn_cast<StructType>(source_type)) {
+                element.struct_type_name = struct_type->getName().str();
+                
+                // Get field index
+                if (GEP->getNumOperands() >= 3) {
+                    if (auto *CI = dyn_cast<ConstantInt>(GEP->getOperand(2))) {
+                        element.offset = CI->getSExtValue();
+                    }
+                }
+            } else if (source_type->isArrayTy()) {
+                element.type = PointerChainElement::ARRAY_INDEX_DEREF;
+                if (GEP->getNumOperands() >= 3) {
+                    if (auto *CI = dyn_cast<ConstantInt>(GEP->getOperand(2))) {
+                        element.offset = CI->getSExtValue();
+                    }
                 }
             }
-        } else if (source_type->isArrayTy()) {
-            element.type = PointerChainElement::ARRAY_INDEX_DEREF;
-            if (GEP->getNumOperands() >= 3) {
-                if (auto *CI = dyn_cast<ConstantInt>(GEP->getOperand(2))) {
-                    element.offset = CI->getSExtValue();
-                }
-            }
+            
+            // Merge base chain and current element
+            chain.elements = base_chain.elements;
+            chain.elements.push_back(element);
+            chain.confidence = std::max(base_chain.confidence - 5, 40);
+            chain.is_complete = base_chain.is_complete;
         }
-        
-        // Merge base chain and current element
-        chain.elements = base_chain.elements;
-        chain.elements.push_back(element);
-        chain.confidence = std::max(base_chain.confidence - 5, 40);
-        chain.is_complete = base_chain.is_complete;
         
     } else if (auto *LI = dyn_cast<LoadInst>(ptr)) {
         // Load instruction - indirect access, trace the loaded pointer
-        PointerChain loaded_chain = tracePointerChain(LI->getPointerOperand(), depth + 1);
-        
-        element.type = PointerChainElement::DIRECT_LOAD;
-        element.llvm_value = ptr;
-        
-        // This is a dereference operation
-        chain.elements = loaded_chain.elements;
-        chain.elements.push_back(element);
-        chain.confidence = std::max(loaded_chain.confidence - 10, 30);
-        chain.is_complete = loaded_chain.is_complete;
+        Value *loadPtr = LI->getPointerOperand();
+        if (loadPtr) {
+            PointerChain loaded_chain = tracePointerChain(loadPtr, depth + 1);
+            
+            element.type = PointerChainElement::DIRECT_LOAD;
+            element.llvm_value = ptr;
+            
+            // This is a dereference operation
+            chain.elements = loaded_chain.elements;
+            chain.elements.push_back(element);
+            chain.confidence = std::max(loaded_chain.confidence - 10, 30);
+            chain.is_complete = loaded_chain.is_complete;
+        }
         
     } else if (auto *CI = dyn_cast<ConstantInt>(ptr)) {
         // Constant pointer
@@ -215,25 +277,27 @@ PointerChain MemoryAccessAnalyzer::tracePointerChain(Value *ptr, int depth) {
         // Constant expression, possibly global variable address calculation
         if (CE->getOpcode() == Instruction::GetElementPtr) {
             // Analyze constant GEP
-            if (auto *GV = dyn_cast<GlobalVariable>(CE->getOperand(0))) {
-                element.type = PointerChainElement::GLOBAL_VAR_BASE;
-                element.symbol_name = GV->getName().str();
-                element.llvm_value = ptr;
-                chain.elements.push_back(element);
-                
-                // If there's an offset, add offset element
-                if (CE->getNumOperands() > 2) {
-                    if (auto *offset_CI = dyn_cast<ConstantInt>(CE->getOperand(2))) {
-                        PointerChainElement offset_elem;
-                        offset_elem.type = PointerChainElement::STRUCT_FIELD_DEREF;
-                        offset_elem.offset = offset_CI->getSExtValue();
-                        offset_elem.llvm_value = ptr;
-                        chain.elements.push_back(offset_elem);
+            if (CE->getNumOperands() > 0) {
+                if (auto *GV = dyn_cast<GlobalVariable>(CE->getOperand(0))) {
+                    element.type = PointerChainElement::GLOBAL_VAR_BASE;
+                    element.symbol_name = GV->getName().str();
+                    element.llvm_value = ptr;
+                    chain.elements.push_back(element);
+                    
+                    // If there's an offset, add offset element
+                    if (CE->getNumOperands() > 2) {
+                        if (auto *offset_CI = dyn_cast<ConstantInt>(CE->getOperand(2))) {
+                            PointerChainElement offset_elem;
+                            offset_elem.type = PointerChainElement::STRUCT_FIELD_DEREF;
+                            offset_elem.offset = offset_CI->getSExtValue();
+                            offset_elem.llvm_value = ptr;
+                            chain.elements.push_back(offset_elem);
+                        }
                     }
+                    
+                    chain.confidence = 90;
+                    chain.is_complete = true;
                 }
-                
-                chain.confidence = 90;
-                chain.is_complete = true;
             }
         }
         
@@ -243,9 +307,12 @@ PointerChain MemoryAccessAnalyzer::tracePointerChain(Value *ptr, int depth) {
         int total_confidence = 0;
         
         for (unsigned i = 0; i < PHI->getNumIncomingValues(); ++i) {
-            PointerChain incoming_chain = tracePointerChain(PHI->getIncomingValue(i), depth + 1);
-            incoming_chains.push_back(incoming_chain);
-            total_confidence += incoming_chain.confidence;
+            Value *incomingValue = PHI->getIncomingValue(i);
+            if (incomingValue) {
+                PointerChain incoming_chain = tracePointerChain(incomingValue, depth + 1);
+                incoming_chains.push_back(incoming_chain);
+                total_confidence += incoming_chain.confidence;
+            }
         }
         
         if (!incoming_chains.empty()) {
@@ -270,10 +337,17 @@ PointerChain MemoryAccessAnalyzer::tracePointerChain(Value *ptr, int depth) {
     return chain;
 }
 
+// 其余方法保持不变，从原文件复制
 MemoryAccessInfo MemoryAccessAnalyzer::analyzeLoadStoreWithChain(Value *ptr, bool is_write, 
                                                                 Type *accessed_type, bool is_irq_handler) {
     MemoryAccessInfo info;
     info.is_write = is_write;
+    
+    // 安全检查
+    if (!ptr) {
+        info.confidence = 0;
+        return info;
+    }
     
     // Set access size
     if (DL && accessed_type) {
@@ -381,6 +455,10 @@ MemoryAccessInfo MemoryAccessAnalyzer::analyzeLoadStoreWithChain(Value *ptr, boo
 MemoryAccessInfo MemoryAccessAnalyzer::analyzeGEPInstruction(GetElementPtrInst *GEP) {
     MemoryAccessInfo info;
     
+    if (!GEP) {
+        return info;
+    }
+    
     Type *source_type = GEP->getSourceElementType();
     if (auto *struct_type = dyn_cast<StructType>(source_type)) {
         info.type = MemoryAccessInfo::STRUCT_FIELD_ACCESS;
@@ -418,6 +496,11 @@ MemoryAccessInfo MemoryAccessAnalyzer::analyzeGEPInstruction(GetElementPtrInst *
 
 MemoryAccessInfo MemoryAccessAnalyzer::analyzeGlobalVariable(GlobalVariable *GV) {
     MemoryAccessInfo info;
+    
+    if (!GV) {
+        return info;
+    }
+    
     info.type = MemoryAccessInfo::GLOBAL_VARIABLE;
     info.symbol_name = GV->getName().str();
     info.confidence = 95;
@@ -444,6 +527,10 @@ MemoryAccessInfo MemoryAccessAnalyzer::analyzeLoadStore(Value *ptr, bool is_writ
     // Keep old simple analysis method as fallback
     MemoryAccessInfo info;
     info.is_write = is_write;
+    
+    if (!ptr) {
+        return info;
+    }
     
     if (auto *GV = dyn_cast<GlobalVariable>(ptr)) {
         return analyzeGlobalVariable(GV);

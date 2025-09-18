@@ -1,0 +1,353 @@
+{
+  "total_unique_combinations": 87,
+  "combinations": [
+    {
+      "handler": "_base_interrupt",
+      "thread_fn": null
+    },
+    {
+      "handler": "acpi_ec_irq_handler",
+      "thread_fn": null
+    },
+    {
+      "handler": "acpi_ged_irq_handler",
+      "thread_fn": null
+    },
+    {
+      "handler": "acpi_irq",
+      "thread_fn": null
+    },
+    {
+      "handler": "aer_irq",
+      "thread_fn": "aer_isr"
+    },
+    {
+      "handler": "ahci_multi_irqs_intr_hard",
+      "thread_fn": null
+    },
+    {
+      "handler": "ahd_linux_isr",
+      "thread_fn": null
+    },
+    {
+      "handler": "ata_bmdma_interrupt",
+      "thread_fn": null
+    },
+    {
+      "handler": "ata_sff_interrupt",
+      "thread_fn": null
+    },
+    {
+      "handler": "b44_interrupt",
+      "thread_fn": null
+    },
+    {
+      "handler": "cb710_irq_handler",
+      "thread_fn": null
+    },
+    {
+      "handler": "dmar_fault",
+      "thread_fn": null
+    },
+    {
+      "handler": "e1000_intr",
+      "thread_fn": null
+    },
+    {
+      "handler": "e1000_intr_msi",
+      "thread_fn": null
+    },
+    {
+      "handler": "e1000_intr_msi_test",
+      "thread_fn": null
+    },
+    {
+      "handler": "e1000_intr_msix_rx",
+      "thread_fn": null
+    },
+    {
+      "handler": "e1000_intr_msix_tx",
+      "thread_fn": null
+    },
+    {
+      "handler": "e1000_msix_other",
+      "thread_fn": null
+    },
+    {
+      "handler": "e1000_test_intr",
+      "thread_fn": null
+    },
+    {
+      "handler": "exar_misc_handler",
+      "thread_fn": null
+    },
+    {
+      "handler": "handle_threaded_wake_irq",
+      "thread_fn": null
+    },
+    {
+      "handler": "hpet_interrupt",
+      "thread_fn": null
+    },
+    {
+      "handler": "hpet_msi_interrupt_handler",
+      "thread_fn": null
+    },
+    {
+      "handler": "i40e_intr",
+      "thread_fn": null
+    },
+    {
+      "handler": "i8042_aux_test_irq",
+      "thread_fn": null
+    },
+    {
+      "handler": "i8042_interrupt",
+      "thread_fn": null
+    },
+    {
+      "handler": "igb_intr",
+      "thread_fn": null
+    },
+    {
+      "handler": "igb_intr_msi",
+      "thread_fn": null
+    },
+    {
+      "handler": "igb_msix_other",
+      "thread_fn": null
+    },
+    {
+      "handler": "igb_msix_ring",
+      "thread_fn": null
+    },
+    {
+      "handler": "igb_test_intr",
+      "thread_fn": null
+    },
+    {
+      "handler": "iommu_pmu_irq_handler",
+      "thread_fn": null
+    },
+    {
+      "handler": "irq_handler",
+      "thread_fn": null
+    },
+    {
+      "handler": "ixgb_intr",
+      "thread_fn": null
+    },
+    {
+      "handler": "ixgbe_intr",
+      "thread_fn": null
+    },
+    {
+      "handler": "ixgbe_msix_clean_rings",
+      "thread_fn": null
+    },
+    {
+      "handler": "ixgbe_msix_other",
+      "thread_fn": null
+    },
+    {
+      "handler": "ixgbe_test_intr",
+      "thread_fn": null
+    },
+    {
+      "handler": "msdc_irq",
+      "thread_fn": null
+    },
+    {
+      "handler": "my_irq_handler",
+      "thread_fn": null
+    },
+    {
+      "handler": "no_action",
+      "thread_fn": null
+    },
+    {
+      "handler": "nv_nic_irq",
+      "thread_fn": null
+    },
+    {
+      "handler": "nv_nic_irq_optimized",
+      "thread_fn": null
+    },
+    {
+      "handler": "nv_nic_irq_other",
+      "thread_fn": null
+    },
+    {
+      "handler": "nv_nic_irq_rx",
+      "thread_fn": null
+    },
+    {
+      "handler": "nv_nic_irq_test",
+      "thread_fn": null
+    },
+    {
+      "handler": "nv_nic_irq_tx",
+      "thread_fn": null
+    },
+    {
+      "handler": "nvme_irq",
+      "thread_fn": null
+    },
+    {
+      "handler": "nvme_irq_check",
+      "thread_fn": "nvme_irq"
+    },
+    {
+      "handler": "pcc_mbox_irq",
+      "thread_fn": null
+    },
+    {
+      "handler": "pcie_pme_irq",
+      "thread_fn": null
+    },
+    {
+      "handler": "phy_interrupt",
+      "thread_fn": null
+    },
+    {
+      "handler": "phylink_link_handler",
+      "thread_fn": null
+    },
+    {
+      "handler": "pnp_test_handler",
+      "thread_fn": null
+    },
+    {
+      "handler": "regulator_notifier_isr",
+      "thread_fn": null
+    },
+    {
+      "handler": "rtl8139_interrupt",
+      "thread_fn": null
+    },
+    {
+      "handler": "rtl8169_interrupt",
+      "thread_fn": null
+    },
+    {
+      "handler": "s2io_isr",
+      "thread_fn": null
+    },
+    {
+      "handler": "s2io_msix_fifo_handle",
+      "thread_fn": null
+    },
+    {
+      "handler": "s2io_msix_ring_handle",
+      "thread_fn": null
+    },
+    {
+      "handler": "s2io_test_intr",
+      "thread_fn": null
+    },
+    {
+      "handler": "sdhci_acpi_qcom_handler",
+      "thread_fn": null
+    },
+    {
+      "handler": "sdhci_irq",
+      "thread_fn": "sdhci_thread_irq"
+    },
+    {
+      "handler": "serial8250_interrupt",
+      "thread_fn": null
+    },
+    {
+      "handler": "sil24_interrupt",
+      "thread_fn": null
+    },
+    {
+      "handler": "sil_interrupt",
+      "thread_fn": null
+    },
+    {
+      "handler": "tg3_interrupt",
+      "thread_fn": null
+    },
+    {
+      "handler": "tg3_interrupt_tagged",
+      "thread_fn": null
+    },
+    {
+      "handler": "tg3_msi",
+      "thread_fn": null
+    },
+    {
+      "handler": "tg3_msi_1shot",
+      "thread_fn": null
+    },
+    {
+      "handler": "tg3_test_isr",
+      "thread_fn": null
+    },
+    {
+      "handler": "tifm_7xx1_isr",
+      "thread_fn": null
+    },
+    {
+      "handler": "timer_interrupt",
+      "thread_fn": null
+    },
+    {
+      "handler": "toshsd_irq",
+      "thread_fn": "toshsd_thread_irq"
+    },
+    {
+      "handler": "tulip_interrupt",
+      "thread_fn": null
+    },
+    {
+      "handler": "usb_hcd_irq",
+      "thread_fn": null
+    },
+    {
+      "handler": "usdhi6_cd",
+      "thread_fn": null
+    },
+    {
+      "handler": "usdhi6_sd",
+      "thread_fn": "usdhi6_sd_bh"
+    },
+    {
+      "handler": "usdhi6_sdio",
+      "thread_fn": null
+    },
+    {
+      "handler": "via_sdc_isr",
+      "thread_fn": null
+    },
+    {
+      "handler": "vm_interrupt",
+      "thread_fn": null
+    },
+    {
+      "handler": "vortex_boomerang_interrupt",
+      "thread_fn": null
+    },
+    {
+      "handler": "vp_config_changed",
+      "thread_fn": null
+    },
+    {
+      "handler": "vp_interrupt",
+      "thread_fn": null
+    },
+    {
+      "handler": "vp_vring_interrupt",
+      "thread_fn": null
+    },
+    {
+      "handler": "vring_interrupt",
+      "thread_fn": null
+    },
+    {
+      "handler": "xhci_msi_irq",
+      "thread_fn": null
+    }
+  ]
+}

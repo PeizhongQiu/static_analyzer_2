@@ -1,6 +1,6 @@
 //===- MemoryAccessAnalyzer.h - Memory Access Analyzer ------------------===//
 //
-// 分析函数中的内存访问模式，包括指针链追踪
+// 分析函数中的内存访问模式，包括指针链追踪，过滤编译器生成的符号
 //
 //===----------------------------------------------------------------------===//
 
@@ -29,6 +29,12 @@ private:
     /// 检查函数是否是中断处理函数
     bool isIRQHandlerFunction(Function &F);
     
+    /// 检查是否是编译器生成的符号
+    bool isCompilerGeneratedSymbol(const std::string& symbol_name) const;
+    
+    /// 检查指针链中是否包含编译器生成的符号
+    bool containsCompilerGeneratedSymbol(const PointerChain& chain) const;
+    
     /// 追踪指针链
     PointerChain tracePointerChain(Value *ptr, int depth = 0);
     
@@ -47,7 +53,7 @@ private:
 public:
     MemoryAccessAnalyzer(const DataLayout *DL) : DL(DL) {}
     
-    /// 分析函数中的所有内存访问
+    /// 分析函数中的所有内存访问（已过滤编译器生成的符号）
     std::vector<MemoryAccessInfo> analyzeFunction(Function &F);
     
     /// 清空指针链缓存
