@@ -175,6 +175,38 @@ InterruptHandlerAnalysis IRQAnalysisPass::analyzeSingleHandler(Function *F,
     outs() << "    Accessed global vars: " << analysis.accessed_global_vars.size() << "\n";
     outs() << "    Accessed struct types: " << analysis.accessed_struct_types.size() << "\n";
     
+    // 显示一些具体的访问信息
+    if (!analysis.accessed_global_vars.empty()) {
+        outs() << "    Key global variables: ";
+        int count = 0;
+        for (const auto& var : analysis.accessed_global_vars) {
+            if (count++ > 0) outs() << ", ";
+            outs() << var;
+            if (count >= 5) { // 只显示前5个
+                if (analysis.accessed_global_vars.size() > 5) {
+                    outs() << " (+" << (analysis.accessed_global_vars.size() - 5) << " more)";
+                }
+                break;
+            }
+        }
+        outs() << "\n";
+    }
+    
+    // 显示高置信度的内存访问
+    int high_confidence_accesses = 0;
+    int device_related_accesses = 0;
+    for (const auto& access : analysis.total_memory_accesses) {
+        if (access.confidence >= 80) high_confidence_accesses++;
+        if (access.isDeviceRelatedAccess()) device_related_accesses++;
+    }
+    
+    if (high_confidence_accesses > 0) {
+        outs() << "    High confidence accesses: " << high_confidence_accesses << "\n";
+    }
+    if (device_related_accesses > 0) {
+        outs() << "    Device-related accesses: " << device_related_accesses << "\n";
+    }
+    
     return analysis;
 }
 

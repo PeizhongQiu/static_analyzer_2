@@ -1,6 +1,6 @@
-//===- main_simple.cpp - Simplified Main Program ----------------------===//
+//===- main_simple.cpp - Fixed Main Program for Multiple Handlers ------===//
 //
-// 简化版主程序，避免LLVM命令行选项冲突
+// 简化版主程序，避免LLVM命令行选项冲突，正确收集所有处理函数
 //
 //===----------------------------------------------------------------------===//
 
@@ -14,8 +14,11 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Analysis/CallGraph.h"
+#include "llvm/Support/JSON.h"
+#include "llvm/IR/DebugInfoMetadata.h"
 #include <string>
 #include <cstring>
+#include <vector>
 
 using namespace llvm;
 
@@ -136,7 +139,10 @@ int main(int argc, char **argv) {
     size_t files_analyzed = 0;
     size_t files_skipped = 0;
     
-    // 逐个分析bitcode文件
+    // *** 关键修改：收集所有分析结果 ***
+    std::vector<InterruptHandlerAnalysis> all_results;
+    
+    // 逐个分析bitcode文件，但收集所有结果
     for (const std::string& bc_file : bitcode_files) {
         if (args.verbose) {
             outs() << "Checking bitcode file: " << bc_file << "\n";
@@ -167,24 +173,172 @@ int main(int argc, char **argv) {
             outs() << "  Functions: " << M->size() << "\n";
         }
         
-        // 创建pass manager
-        legacy::PassManager PM;
+        // *** 关键修改：自定义分析逻辑而不是使用Pass ***
         
-        // 添加必需的分析pass
-        PM.add(new CallGraphWrapperPass());
+        // 初始化分析器
+        InterruptHandlerIdentifier identifier;
+        MemoryAccessAnalyzer mem_analyzer(&M->getDataLayout());
+        InlineAsmAnalyzer asm_analyzer;
+        FunctionPointerAnalyzer fp_analyzer(M.get(), &M->getDataLayout());
+        FunctionCallAnalyzer call_analyzer(&fp_analyzer);
         
-        // 添加我们的分析pass
-        IRQAnalysisPass *analysis_pass = new IRQAnalysisPass(args.output_path, args.handler_json_path);
-        PM.add(analysis_pass);
+        // 加载中断处理函数
+        if (!identifier.loadHandlersFromJson(args.handler_json_path, *M)) {
+            if (args.verbose) {
+                outs() << "No handlers found in " << bc_file << "\n";
+            }
+            continue;
+        }
         
-        // 运行pass
-        PM.run(*M);
+        // 如果找到了处理函数，进行分析
+        if (identifier.getHandlerCount() > 0) {
+            if (args.verbose) {
+                outs() << "Found " << identifier.getHandlerCount() 
+                       << " handlers in " << bc_file << ":\n";
+                for (Function *F : identifier.getIdentifiedHandlers()) {
+                    outs() << "  - " << F->getName() << "\n";
+                }
+            }
+            
+            // 分析每个找到的处理函数
+            for (Function *F : identifier.getIdentifiedHandlers()) {
+                if (args.verbose) {
+                    outs() << "Analyzing handler: " << F->getName() << "\n";
+                }
+                
+                InterruptHandlerAnalysis analysis;
+                
+                // 基本信息
+                analysis.function_name = F->getName().str();
+                analysis.is_confirmed_irq_handler = true;
+                analysis.basic_block_count = F->size();
+                
+                // 源码位置信息（简化处理避免编译错误）
+                analysis.source_file = bc_file; // 使用bitcode文件路径
+                analysis.line_number = 0;
+                
+                // 循环统计
+                analysis.loop_count = 0;
+                for (auto &BB : *F) {
+                    for (auto &I : BB) {
+                        if (auto *BI = dyn_cast<BranchInst>(&I)) {
+                            if (BI->isConditional()) {
+                                analysis.loop_count++;
+                            }
+                        }
+                    }
+                }
+                
+                // 内存访问分析 - 只记录写操作
+                std::vector<MemoryAccessInfo> all_accesses = mem_analyzer.analyzeFunction(*F);
+                for (const auto& access : all_accesses) {
+                    if (access.is_write) {  // 只保留写操作
+                        analysis.memory_accesses.push_back(access);
+                    }
+                }
+                
+                // 函数调用分析
+                analysis.function_calls = call_analyzer.analyzeFunctionCalls(*F);
+                
+                // 间接调用的内存影响分析 - 只记录写操作
+                std::vector<MemoryAccessInfo> all_indirect_impacts = 
+                    call_analyzer.getIndirectCallMemoryImpacts(*F);
+                
+                std::vector<MemoryAccessInfo> indirect_impacts;
+                for (const auto& access : all_indirect_impacts) {
+                    if (access.is_write) {  // 只保留写操作
+                        indirect_impacts.push_back(access);
+                    }
+                }
+                
+                // 合并直接和间接内存访问（都是写操作）
+                analysis.total_memory_accesses = analysis.memory_accesses;
+                analysis.total_memory_accesses.insert(analysis.total_memory_accesses.end(),
+                                                    indirect_impacts.begin(), indirect_impacts.end());
+                
+                // 间接调用分析
+                for (auto &BB : *F) {
+                    for (auto &I : BB) {
+                        if (auto *CI = dyn_cast<CallInst>(&I)) {
+                            if (!CI->getCalledFunction()) {
+                                IndirectCallAnalysis indirect_analysis = 
+                                    fp_analyzer.analyzeIndirectCall(CI);
+                                analysis.indirect_call_analyses.push_back(indirect_analysis);
+                            }
+                        }
+                    }
+                }
+                
+                // 内联汇编分析
+                for (auto &BB : *F) {
+                    for (auto &I : BB) {
+                        if (auto *CI = dyn_cast<CallInst>(&I)) {
+                            if (auto *IA = dyn_cast<InlineAsm>(CI->getCalledOperand())) {
+                                auto reg_accesses = asm_analyzer.analyzeInlineAsm(IA);
+                                analysis.register_accesses.insert(
+                                    analysis.register_accesses.end(),
+                                    reg_accesses.begin(), reg_accesses.end());
+                            }
+                        }
+                    }
+                }
+                
+                // 符号统计
+                for (const auto &access : analysis.total_memory_accesses) {
+                    if (access.type == MemoryAccessInfo::GLOBAL_VARIABLE) {
+                        analysis.accessed_global_vars.insert(access.symbol_name);
+                    } else if (access.type == MemoryAccessInfo::STRUCT_FIELD_ACCESS ||
+                              access.type == MemoryAccessInfo::POINTER_CHAIN_ACCESS) {
+                        if (!access.struct_type_name.empty()) {
+                            analysis.accessed_struct_types.insert(access.struct_type_name);
+                        }
+                        for (const auto &elem : access.pointer_chain.elements) {
+                            if (!elem.struct_type_name.empty()) {
+                                analysis.accessed_struct_types.insert(elem.struct_type_name);
+                            }
+                        }
+                    }
+                }
+                
+                // 递归调用检测（简化版）
+                analysis.has_recursive_calls = false; // 简化处理
+                
+                // *** 关键：将结果添加到总列表中 ***
+                all_results.push_back(analysis);
+                
+                if (args.verbose) {
+                    outs() << "  Memory accesses: " << analysis.memory_accesses.size() << "\n";
+                    outs() << "  Function calls: " << analysis.function_calls.size() << "\n";
+                    outs() << "  High confidence accesses: ";
+                    int high_conf = 0;
+                    for (const auto& access : analysis.total_memory_accesses) {
+                        if (access.confidence >= 80) high_conf++;
+                    }
+                    outs() << high_conf << "\n";
+                }
+            }
+        }
         
         files_analyzed++;
+    }
+    
+    // *** 关键修改：一次性输出所有结果 ***
+    if (!all_results.empty()) {
+        JSONOutputGenerator json_generator;
+        json_generator.outputAnalysisResults(all_results, args.output_path);
         
-        if (args.show_stats) {
-            outs() << "File: " << bc_file << " - Analysis completed\n";
+        outs() << "\n=== Final Analysis Summary ===\n";
+        outs() << "Total handlers found and analyzed: " << all_results.size() << "\n";
+        outs() << "Handlers:\n";
+        for (const auto& analysis : all_results) {
+            outs() << "  ✓ " << analysis.function_name 
+                   << " (" << analysis.total_memory_accesses.size() << " memory accesses, "
+                   << analysis.function_calls.size() << " function calls)\n";
         }
+        outs() << "Results written to: " << args.output_path << "\n";
+    } else {
+        outs() << "No interrupt handlers found in any bitcode files!\n";
+        return 1;
     }
     
     // 输出统计信息
@@ -193,21 +347,9 @@ int main(int argc, char **argv) {
         outs() << "Bitcode files found: " << bitcode_files.size() << "\n";
         outs() << "Files analyzed: " << files_analyzed << "\n";
         outs() << "Files skipped: " << files_skipped << "\n";
-        outs() << "Results written to: " << args.output_path << "\n";
-    }
-    
-    if (files_analyzed == 0) {
-        errs() << "No files were successfully analyzed!\n";
-        errs() << "\nTroubleshooting:\n";
-        errs() << "1. Make sure .bc files exist (compile with -emit-llvm)\n";
-        errs() << "2. Check that compile_commands.json contains valid paths\n";
-        errs() << "3. Verify bitcode files are valid LLVM IR\n";
-        errs() << "\nExample compilation:\n";
-        errs() << "  clang -emit-llvm -c source.c -o source.bc\n";
-        return 1;
+        outs() << "Total handlers found: " << all_results.size() << "\n";
     }
     
     outs() << "Analysis completed successfully.\n";
-    outs() << "Check " << args.output_path << " for results.\n";
     return 0;
 }

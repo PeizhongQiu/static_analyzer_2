@@ -1,6 +1,6 @@
 //===- IRQHandlerIdentifier.h - Interrupt Handler Identifier ------------===//
 //
-// 从handler.json文件读取中断处理函数列表
+// 从handler.json文件读取中断处理函数列表，支持静态函数
 //
 //===----------------------------------------------------------------------===//
 
@@ -27,7 +27,7 @@ private:
     /// 解析handler.json文件
     bool parseHandlerJsonFile(const std::string& json_file);
     
-    /// 在模块中查找指定名称的函数
+    /// 在模块中查找指定名称的函数（支持静态函数）
     Function* findFunctionByName(Module &M, const std::string& func_name);
     
 public:

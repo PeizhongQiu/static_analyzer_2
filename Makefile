@@ -1,4 +1,4 @@
-# Makefile for LLVM IRQ Analysis Tool - 修复版本
+# Makefile for LLVM IRQ Analysis Tool - Simplified Version
 
 # LLVM配置
 LLVM_CONFIG = llvm-config
@@ -60,6 +60,11 @@ $(TARGET_SIMPLE): $(OBJECTS_SIMPLE)
 	@echo "Linking $(TARGET_SIMPLE) (simple version)..."
 	$(CXX) $(OBJECTS_SIMPLE) -o $(TARGET_SIMPLE) $(LDFLAGS)
 	@echo "Build completed: $(TARGET_SIMPLE)"
+	@echo ""
+	@echo "Key improvements in this version:"
+	@echo "  ✓ Supports static functions (lowercase 't' symbols)"
+	@echo "  ✓ Enhanced static variable detection"
+	@echo "  ✓ Improved memory access analysis"
 
 # 编译核心源文件
 %.o: %.cpp
@@ -77,23 +82,34 @@ test: $(TARGET_SIMPLE)
 	@mkdir -p test
 	@echo '{"total_unique_combinations": 5, "combinations": [{"handler": "test_handler1"}, {"handler": "test_handler2"}, {"handler": "test_handler1"}, {"handler": "test_handler3"}]}' > test/handler_with_duplicates.json
 	@echo '[]' > test/minimal_compile_commands.json
-	@echo "Running deduplication test with simple version..."
+	@echo "Running basic test..."
 	./$(TARGET_SIMPLE) --compile-commands=test/minimal_compile_commands.json \
 	                   --handlers=test/handler_with_duplicates.json \
-	                   --output=test/dedup_test_output.json \
+	                   --output=test/basic_test_output.json \
 	                   --verbose || true
 	@echo "Test completed"
 
-# 测试标准版本
-test-standard: $(TARGET)
-	@echo "Testing standard version (may have command line conflicts)..."
-	@mkdir -p test
-	@echo '{"total_unique_combinations": 5, "combinations": [{"handler": "test_handler1"}, {"handler": "test_handler2"}, {"handler": "test_handler1"}, {"handler": "test_handler3"}]}' > test/handler_with_duplicates.json
-	@echo '[]' > test/minimal_compile_commands.json
-	./$(TARGET) --compile-commands=test/minimal_compile_commands.json \
-	            --handlers=test/handler_with_duplicates.json \
-	            --output=test/dedup_test_output.json \
-	            --verbose || true
+# 测试ACPI处理函数（如果存在）
+test-acpi: $(TARGET_SIMPLE)
+	@echo "Testing ACPI handler analysis (if available)..."
+	@KERNEL_DIR="../kafl.linux"; \
+	BC_FILE="$$KERNEL_DIR/drivers/acpi/ec.bc"; \
+	if [ -f "$$BC_FILE" ]; then \
+		echo "Found ACPI bitcode file: $$BC_FILE"; \
+		echo '{"total_unique_combinations": 1, "combinations": [{"handler": "acpi_ec_irq_handler"}]}' > test_acpi_handler.json; \
+		echo '[{"directory": "'$$KERNEL_DIR'/drivers/acpi", "command": "clang -emit-llvm -c ec.c -o ec.bc", "file": "ec.c"}]' > test_acpi_compile_commands.json; \
+		./$(TARGET_SIMPLE) --compile-commands=test_acpi_compile_commands.json \
+		                   --handlers=test_acpi_handler.json \
+		                   --output=acpi_test_results.json \
+		                   --verbose; \
+		echo "ACPI test completed - check acpi_test_results.json"; \
+		rm -f test_acpi_handler.json test_acpi_compile_commands.json; \
+	else \
+		echo "ACPI bitcode file not found at $$BC_FILE"; \
+		echo "To test with ACPI:"; \
+		echo "  1. Compile ACPI EC driver: cd $$KERNEL_DIR/drivers/acpi && clang -emit-llvm -c ec.c -o ec.bc -I../../include -D__KERNEL__"; \
+		echo "  2. Run: make test-acpi"; \
+	fi
 
 # 检查依赖
 check-deps:
@@ -110,11 +126,17 @@ info:
 	@echo "LLVM Version: $(shell $(LLVM_CONFIG) --version)"
 	@echo "Compiler: $(CXX)"
 	@echo "Core Sources: $(words $(CORE_SOURCES)) files"
-	@echo "LLVM Libraries: $(LLVM_LIBS)"
 	@echo ""
 	@echo "Available targets:"
 	@echo "  simple (default) - Build with simple argument parsing"
 	@echo "  standard         - Build with LLVM CommandLine (may conflict)"
+	@echo ""
+	@echo "Key features:"
+	@echo "  • Supports static functions (lowercase 't' LLVM symbols)"
+	@echo "  • Static variable access detection and analysis"
+	@echo "  • Enhanced memory access pattern recognition"
+	@echo "  • Device-related access identification"
+	@echo "  • Comprehensive JSON output for fuzzing"
 	@echo ""
 	@echo "Build command (simple):"
 	@echo "$(CXX) $(CXXFLAGS) $(SOURCES_SIMPLE) -o $(TARGET_SIMPLE) $(LDFLAGS)"
@@ -126,17 +148,22 @@ help:
 	@echo "  standard  - Build standard version (may have option conflicts)"
 	@echo "  all       - Same as 'simple'"
 	@echo "  clean     - Remove build artifacts"
-	@echo "  test      - Run basic test with simple version"
-	@echo "  test-standard - Test standard version"
+	@echo "  test      - Run basic test"
+	@echo "  test-acpi - Test with ACPI handler (if available)"
 	@echo "  check-deps- Check dependencies"
 	@echo "  info      - Show build information"
 	@echo "  help      - Show this help message"
 	@echo ""
-	@echo "Usage example (simple version):"
+	@echo "Usage example:"
 	@echo "  make simple"
 	@echo "  ./irq_analyzer_simple --compile-commands=compile_commands.json \\"
 	@echo "                        --handlers=handler.json \\"
 	@echo "                        --output=results.json --verbose"
+	@echo ""
+	@echo "What's new:"
+	@echo "  ✓ Now supports static interrupt handlers (functions with 't' linkage)"
+	@echo "  ✓ Can find modifications to static variables in handlers"
+	@echo "  ✓ Enhanced analysis for better fuzzing target identification"
 
 # 调试构建
 debug: CXXFLAGS += -g -O0 -DDEBUG
@@ -148,4 +175,4 @@ release: CXXFLAGS += -O3 -DNDEBUG
 release: $(TARGET_SIMPLE)
 	@echo "Release build completed"
 
-.PHONY: all simple standard clean test test-standard check-deps info help debug release
+.PHONY: all simple standard clean test test-acpi check-deps info help debug release

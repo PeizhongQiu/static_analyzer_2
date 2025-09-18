@@ -1,4 +1,4 @@
-//===- IRQHandlerIdentifier.cpp - Interrupt Handler Identifier Implementation ===//
+//===- IRQHandlerIdentifier.cpp - Simplified Interrupt Handler Identifier ===//
 
 #include "IRQHandlerIdentifier.h"
 #include "llvm/Support/JSON.h"
@@ -55,7 +55,9 @@ bool InterruptHandlerIdentifier::parseHandlerJsonFile(const std::string& json_fi
             // 检查是否重复
             if (unique_handlers.find(handler_name) != unique_handlers.end()) {
                 duplicate_count++;
-                outs() << "Warning: Duplicate handler found: " << handler_name << "\n";
+                if (duplicate_count <= 10) { // 只显示前10个重复项
+                    outs() << "Warning: Duplicate handler found: " << handler_name << "\n";
+                }
             } else {
                 unique_handlers.insert(handler_name);
             }
@@ -68,7 +70,13 @@ bool InterruptHandlerIdentifier::parseHandlerJsonFile(const std::string& json_fi
     
     // 输出统计信息
     outs() << "Loaded " << total_entries << " total entries from " << json_file << "\n";
-    outs() << "Found " << duplicate_count << " duplicate handlers\n";
+    if (duplicate_count > 0) {
+        outs() << "Found " << duplicate_count << " duplicate handlers";
+        if (duplicate_count > 10) {
+            outs() << " (only first 10 shown)";
+        }
+        outs() << "\n";
+    }
     outs() << "Unique handlers after deduplication: " << handler_names.size() << "\n";
     
     return true;
@@ -89,7 +97,7 @@ bool InterruptHandlerIdentifier::loadHandlersFromJson(const std::string& json_fi
         return false;
     }
     
-    // 在模块中查找对应的函数
+    // 在模块中查找对应的函数（包括静态函数）
     int found_handlers = 0;
     int missing_handlers = 0;
     
