@@ -19,7 +19,7 @@ using namespace llvm;
 //===----------------------------------------------------------------------===//
 
 class MemoryAccessAnalyzer {
-private:
+protected:  // 改为 protected，让子类可以访问
     const DataLayout *DL;
     std::map<Value*, PointerChain> pointer_chain_cache; // 缓存已分析的指针链
     
@@ -54,10 +54,13 @@ public:
     MemoryAccessAnalyzer(const DataLayout *DL) : DL(DL) {}
     
     /// 分析函数中的所有内存访问（已过滤编译器生成的符号）
-    std::vector<MemoryAccessInfo> analyzeFunction(Function &F);
+    virtual std::vector<MemoryAccessInfo> analyzeFunction(Function &F);
     
     /// 清空指针链缓存
     void clearCache() { pointer_chain_cache.clear(); }
+    
+    /// 获取数据布局 - 为子类提供访问方法
+    const DataLayout* getDataLayout() const { return DL; }
 };
 
 #endif // IRQ_ANALYSIS_MEMORY_ACCESS_ANALYZER_H

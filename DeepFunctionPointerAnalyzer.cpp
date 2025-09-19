@@ -203,7 +203,7 @@ std::vector<FunctionPointerCandidate> DeepFunctionPointerAnalyzer::analyzeStruct
                         }
                     }
                 }
-        [O    }
+            }
         }
     }
     

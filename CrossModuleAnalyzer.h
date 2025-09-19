@@ -180,6 +180,36 @@ private:
     /// 分析全局函数指针表
     std::vector<FunctionPointerCandidate> analyzeGlobalFunctionTable(GlobalVariable* GV);
     
+    /// 辅助函数：构建函数签名
+    std::string buildFunctionSignature(FunctionType* FT);
+    
+    /// 辅助函数：分析函数名称模式
+    int analyzeFunctionNamePattern(const std::string& name, std::string& reason);
+    
+    /// 辅助函数：确定函数作用域
+    SymbolScope determineFunctionScope(Function* F);
+    
+    /// 辅助函数：获取模块名称
+    std::string getModuleName(Function* F);
+    
+    /// 辅助函数：检查结构体字段匹配
+    bool isMatchingStructField(GetElementPtrInst* gep1, GetElementPtrInst* gep2, StructType* expected_type);
+    
+    /// 辅助函数：分析函数表元素
+    void analyzeFunctionTableElement(Value* element, const std::string& table_name, 
+                                   const std::string& element_type, 
+                                   std::vector<FunctionPointerCandidate>& candidates);
+    
+    /// 辅助函数：处理和排序候选函数
+    std::vector<FunctionPointerCandidate> processAndSortCandidates(
+        std::vector<FunctionPointerCandidate> candidates);
+    
+    /// 辅助函数：简单内存访问分析
+    void analyzeBasicMemoryAccess(Function* F, InterruptHandlerAnalysis& analysis);
+    
+    /// 辅助函数：基于数据流分析内存访问
+    void analyzeMemoryAccessWithDataFlow(Value* ptr, MemoryAccessInfo& access);
+    
 public:
     DeepFunctionPointerAnalyzer(EnhancedGlobalSymbolTable* symbols, DataFlowAnalyzer* dfa)
         : global_symbols(symbols), dataflow_analyzer(dfa) {}

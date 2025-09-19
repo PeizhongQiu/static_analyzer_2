@@ -7,6 +7,64 @@
 using namespace llvm;
 
 //===----------------------------------------------------------------------===//
+// 辅助函数：检查是否为LLVM内置函数
+//===----------------------------------------------------------------------===//
+
+static bool isLLVMIntrinsicFunction(const std::string& name) {
+    // LLVM内置函数前缀
+    if (name.find("llvm.") == 0) {
+        return true;
+    }
+    
+    // 编译器插桩函数
+    static const std::vector<std::string> instrumentation_prefixes = {
+        "__sanitizer_cov_",
+        "__asan_",
+        "__msan_",
+        "__tsan_",
+        "__ubsan_",
+        "__gcov_",
+        "__llvm_gcov_",
+        "__llvm_gcda_",
+        "__llvm_gcno_",
+        "__coverage_",
+        "__profile_"
+    };
+    
+    for (const auto& prefix : instrumentation_prefixes) {
+        if (name.find(prefix) == 0) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+static bool isCompilerGeneratedFunction(const std::string& name) {
+    // 检查是否是编译器生成的函数
+    static const std::vector<std::string> compiler_generated = {
+        "__stack_chk_fail",
+        "__stack_chk_guard", 
+        "_GLOBAL__sub_I_",
+        "__cxx_global_var_init",
+        "__dso_handle",
+        "_ZN", // C++ mangled names (可选择过滤)
+    };
+    
+    for (const auto& pattern : compiler_generated) {
+        if (name.find(pattern) == 0) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+static bool shouldFilterFunction(const std::string& name) {
+    return isLLVMIntrinsicFunction(name) || isCompilerGeneratedFunction(name);
+}
+
+//===----------------------------------------------------------------------===//
 // 中断处理函数分析实现
 //===----------------------------------------------------------------------===//
 
@@ -48,15 +106,15 @@ std::vector<InterruptHandlerAnalysis> CrossModuleAnalyzer::analyzeAllHandlers(co
         InterruptHandlerAnalysis analysis = analyzeHandlerDeep(F);
         all_results.push_back(analysis);
         
-        // 显示增强分析的额外信息
-        int cross_module_calls = 0;
+        // 显示增强分析的额外信息（过滤无意义的调用）
+        int meaningful_calls = 0;
         int static_accesses = 0;
         int global_accesses = 0;
         int dataflow_confirmed = 0;
         
         for (const auto& call : analysis.function_calls) {
-            if (call.analysis_reason.find("cross_module") != std::string::npos) {
-                cross_module_calls++;
+            if (!shouldFilterFunction(call.callee_name)) {
+                meaningful_calls++;
             }
         }
         
@@ -72,7 +130,8 @@ std::vector<InterruptHandlerAnalysis> CrossModuleAnalyzer::analyzeAllHandlers(co
             }
         }
         
-        outs() << "  Cross-module calls: " << cross_module_calls << "\n";
+        outs() << "  Meaningful function calls: " << meaningful_calls << " (filtered out " 
+               << (analysis.function_calls.size() - meaningful_calls) << " intrinsics)\n";
         outs() << "  Static variable accesses: " << static_accesses << "\n";
         outs() << "  Global variable accesses: " << global_accesses << "\n";
         outs() << "  Dataflow confirmed accesses: " << dataflow_confirmed << "\n";
@@ -132,7 +191,7 @@ InterruptHandlerAnalysis CrossModuleAnalyzer::analyzeHandlerDeep(Function* F) {
         static_cast<EnhancedCrossModuleMemoryAnalyzer*>(memory_analyzer.get());
     analysis.memory_accesses = enhanced_mem_analyzer->analyzeWithDataFlow(*F);
     
-    // 深度函数调用分析（包括函数指针深度解析）
+    // 深度函数调用分析（包括函数指针深度解析）- 带过滤
     analysis.function_calls = analyzeHandlerFunctionCalls(F);
     
     // 分析所有间接调用
@@ -218,7 +277,7 @@ InterruptHandlerAnalysis CrossModuleAnalyzer::analyzeHandlerDeep(Function* F) {
     return analysis;
 }
 
-// 函数调用分析实现
+// 函数调用分析实现 - 带过滤
 std::vector<FunctionCallInfo> CrossModuleAnalyzer::analyzeHandlerFunctionCalls(Function* F) {
     std::vector<FunctionCallInfo> calls;
     
@@ -226,9 +285,16 @@ std::vector<FunctionCallInfo> CrossModuleAnalyzer::analyzeHandlerFunctionCalls(F
         for (auto& I : BB) {
             if (auto* CI = dyn_cast<CallInst>(&I)) {
                 if (Function* callee = CI->getCalledFunction()) {
-                    // 直接函数调用
+                    // 直接函数调用 - 过滤LLVM内置函数
+                    std::string callee_name = callee->getName().str();
+                    
+                    // 跳过LLVM内置函数和编译器生成的函数
+                    if (shouldFilterFunction(callee_name)) {
+                        continue;
+                    }
+                    
                     FunctionCallInfo info;
-                    info.callee_name = callee->getName().str();
+                    info.callee_name = callee_name;
                     info.is_direct_call = true;
                     info.confidence = 100;
                     
@@ -250,14 +316,30 @@ std::vector<FunctionCallInfo> CrossModuleAnalyzer::analyzeHandlerFunctionCalls(F
                         info.analysis_reason += "_global_function";
                     }
                     
+                    // 判断是否为内核函数（简单启发式）
+                    if (callee_name.find("pci_") == 0 || 
+                        callee_name.find("kmalloc") != std::string::npos ||
+                        callee_name.find("printk") != std::string::npos ||
+                        callee_name.find("spin_") == 0 ||
+                        callee_name.find("mutex_") == 0) {
+                        info.is_kernel_function = true;
+                    }
+                    
                     calls.push_back(info);
                 } else {
                     // 间接函数调用 - 使用深度分析
                     auto candidates = deep_fp_analyzer->analyzeDeep(CI->getCalledOperand());
                     
                     for (const auto& candidate : candidates) {
+                        std::string candidate_name = candidate.function->getName().str();
+                        
+                        // 跳过LLVM内置函数
+                        if (shouldFilterFunction(candidate_name)) {
+                            continue;
+                        }
+                        
                         FunctionCallInfo info;
-                        info.callee_name = candidate.function->getName().str();
+                        info.callee_name = candidate_name;
                         info.is_direct_call = false;
                         info.confidence = candidate.confidence;
                         info.analysis_reason = candidate.match_reason;

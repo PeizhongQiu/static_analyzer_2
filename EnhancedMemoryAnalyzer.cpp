@@ -60,9 +60,10 @@ MemoryAccessInfo EnhancedCrossModuleMemoryAnalyzer::analyzePointerDataFlow(Value
         return info;
     }
     
-    // 设置访问大小
-    if (DL && accessed_type) {
-        info.access_size = DL->getTypeStoreSize(accessed_type);
+    // 设置访问大小 - 使用 getDataLayout() 方法
+    const DataLayout* dl = getDataLayout();
+    if (dl && accessed_type) {
+        info.access_size = dl->getTypeStoreSize(accessed_type);
     }
     
     // 使用数据流分析器分析指针来源
@@ -150,8 +151,10 @@ MemoryAccessInfo EnhancedCrossModuleMemoryAnalyzer::analyzeGlobalVariableAccess(
         info.confidence = 85;
     }
     
-    if (DL) {
-        info.access_size = DL->getTypeStoreSize(GV->getValueType());
+    // 使用 getDataLayout() 方法
+    const DataLayout* dl = getDataLayout();
+    if (dl) {
+        info.access_size = dl->getTypeStoreSize(GV->getValueType());
     }
     
     return info;

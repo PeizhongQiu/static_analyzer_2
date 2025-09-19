@@ -1,255 +1,228 @@
-//===- DeepFunctionPointerAnalyzer.cpp - 深度函数指针分析器实现 -----------===//
+//===- CrossModuleAnalyzer.cpp - 跨模块分析器实现 ------------------------===//
 
 #include "CrossModuleAnalyzer.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Bitcode/BitcodeReader.h"
+#include "llvm/Support/MemoryBuffer.h"
 
 using namespace llvm;
 
 //===----------------------------------------------------------------------===//
-// DeepFunctionPointerAnalyzer 主要实现
+// CrossModuleAnalyzer 主要实现
 //===----------------------------------------------------------------------===//
 
-std::vector<FunctionPointerCandidate> DeepFunctionPointerAnalyzer::analyzeDeep(Value* fp_value) {
-    std::vector<FunctionPointerCandidate> candidates;
+bool CrossModuleAnalyzer::loadAllModules(const std::vector<std::string>& bc_files, LLVMContext& Context) {
+    context = &Context;
+    modules.clear();
+    enhanced_symbols.clear();
     
-    if (!fp_value) {
-        return candidates;
-    }
+    outs() << "Loading modules for cross-module analysis...\n";
     
-    // 1. 基于类型的候选函数查找
-    if (auto* ptr_type = dyn_cast<PointerType>(fp_value->getType())) {
-        if (auto* func_type = dyn_cast<FunctionType>(ptr_type->getElementType())) {
-            auto type_candidates = findCandidatesByType(func_type);
-            candidates.insert(candidates.end(), type_candidates.begin(), type_candidates.end());
-        }
-    }
+    size_t loaded = 0;
+    size_t total = bc_files.size();
     
-    // 2. 基于存储位置的分析
-    auto storage_candidates = analyzeFunctionPointerStorage(fp_value);
-    candidates.insert(candidates.end(), storage_candidates.begin(), storage_candidates.end());
-    
-    // 3. 如果是GEP指令，分析结构体字段
-    if (auto* GEP = dyn_cast<GetElementPtrInst>(fp_value)) {
-        auto struct_candidates = analyzeStructFunctionPointers(GEP);
-        candidates.insert(candidates.end(), struct_candidates.begin(), struct_candidates.end());
-    }
-    
-    // 4. 如果是全局变量，分析函数指针表
-    if (auto* GV = dyn_cast<GlobalVariable>(fp_value)) {
-        auto table_candidates = analyzeGlobalFunctionTable(GV);
-        candidates.insert(candidates.end(), table_candidates.begin(), table_candidates.end());
-    }
-    
-    // 5. 数据流分析增强
-    if (dataflow_analyzer) {
-        DataFlowNode flow_info = dataflow_analyzer->getDataFlowInfo(fp_value);
-        if (flow_info.node_type == "global" || flow_info.node_type == "static") {
-            // 根据数据流信息调整候选函数的置信度
-            for (auto& candidate : candidates) {
-                if (flow_info.source_module && 
-                    global_symbols->function_to_module[candidate.function] == flow_info.source_module) {
-                    candidate.confidence += 15; // 同模块的函数获得额外置信度
-                    candidate.match_reason += "_same_module";
-                }
-            }
-        }
-    }
-    
-    // 6. 去重并排序
-    return processAndSortCandidates(candidates);
-}
-
-std::vector<FunctionPointerCandidate> DeepFunctionPointerAnalyzer::findCandidatesByType(FunctionType* FT) {
-    std::vector<FunctionPointerCandidate> candidates;
-    
-    if (!FT) {
-        return candidates;
-    }
-    
-    // 构建函数类型签名
-    std::string signature = buildFunctionSignature(FT);
-    
-    // 查找匹配的函数
-    auto it = global_symbols->signature_to_functions.find(signature);
-    if (it != global_symbols->signature_to_functions.end()) {
-        for (Function* F : it->second) {
-            if (!F) continue;
-            
-            std::string reason = "signature_match";
-            int confidence = 50;
-            
-            // 根据函数名调整置信度
-            confidence += analyzeFunctionNamePattern(F->getName().str(), reason);
-            
-            // 获取函数作用域
-            SymbolScope scope = determineFunctionScope(F);
-            if (scope == SymbolScope::STATIC) {
-                reason += "_static_function";
-            }
-            
-            std::string module_name = getModuleName(F);
-            candidates.emplace_back(F, confidence, reason, module_name, scope);
-        }
-    }
-    
-    return candidates;
-}
-
-std::vector<FunctionPointerCandidate> DeepFunctionPointerAnalyzer::analyzeFunctionPointerStorage(Value* fp_value) {
-    std::vector<FunctionPointerCandidate> candidates;
-    
-    if (!fp_value) {
-        return candidates;
-    }
-    
-    // 查找对这个值的所有存储操作
-    for (auto* User : fp_value->users()) {
-        if (auto* SI = dyn_cast<StoreInst>(User)) {
-            Value* stored_value = SI->getValueOperand();
-            
-            if (auto* F = dyn_cast<Function>(stored_value)) {
-                std::string reason = "stored_function_pointer";
-                int confidence = 75;
-                
-                // 检查存储位置的数据流信息
-                if (dataflow_analyzer) {
-                    DataFlowNode store_location = dataflow_analyzer->getDataFlowInfo(SI->getPointerOperand());
-                    if (store_location.node_type == "global") {
-                        confidence += 10;
-                        reason += "_global_storage";
-                    } else if (store_location.node_type == "static") {
-                        confidence += 5;
-                        reason += "_static_storage";
-                    }
-                }
-                
-                SymbolScope scope = determineFunctionScope(F);
-                std::string module_name = getModuleName(F);
-                candidates.emplace_back(F, confidence, reason, module_name, scope);
-            }
-        }
-    }
-    
-    return candidates;
-}
-
-std::vector<FunctionPointerCandidate> DeepFunctionPointerAnalyzer::analyzeStructFunctionPointers(GetElementPtrInst* GEP) {
-    std::vector<FunctionPointerCandidate> candidates;
-    
-    if (!GEP) {
-        return candidates;
-    }
-    
-    Type* source_type = GEP->getSourceElementType();
-    auto* struct_type = dyn_cast<StructType>(source_type);
-    if (!struct_type) {
-        return candidates;
-    }
-    
-    std::string struct_name = struct_type->getName().str();
-    
-    // 分析这个结构体类型在所有模块中的使用
-    for (const auto& module_pair : global_symbols->module_by_name) {
-        Module* module = module_pair.second;
-        if (!module) continue;
+    for (const auto& bc_file : bc_files) {
+        outs() << "Loading: " << bc_file << "... ";
         
-        // 查找对这个结构体字段的赋值
-        for (auto& F : *module) {
-            for (auto& BB : F) {
-                for (auto& I : BB) {
-                    if (auto* SI = dyn_cast<StoreInst>(&I)) {
-                        if (auto* other_GEP = dyn_cast<GetElementPtrInst>(SI->getPointerOperand())) {
-                            if (isMatchingStructField(GEP, other_GEP, struct_type)) {
-                                Value* stored_func = SI->getValueOperand();
-                                if (auto* func = dyn_cast<Function>(stored_func)) {
-                                    std::string reason = "struct_field_assignment:" + struct_name;
-                                    int confidence = 80;
-                                    
-                                    SymbolScope scope = determineFunctionScope(func);
-                                    std::string module_name = getModuleName(func);
-                                    candidates.emplace_back(func, confidence, reason, module_name, scope);
-                                }
-                            }
-                        }
-                    }
-                }
+        ErrorOr<std::unique_ptr<MemoryBuffer>> BufferOrErr = 
+            MemoryBuffer::getFile(bc_file);
+        
+        if (std::error_code EC = BufferOrErr.getError()) {
+            outs() << "✗ Failed to read file: " << EC.message() << "\n";
+            continue;
+        }
+        
+        Expected<std::unique_ptr<Module>> ModuleOrErr = 
+            parseBitcodeFile(BufferOrErr.get()->getMemBufferRef(), Context);
+        
+        if (!ModuleOrErr) {
+            outs() << "✗ Failed to parse bitcode: " << toString(ModuleOrErr.takeError()) << "\n";
+            continue;
+        }
+        
+        std::unique_ptr<Module> M = std::move(ModuleOrErr.get());
+        if (!M) {
+            outs() << "✗ Null module\n";
+            continue;
+        }
+        
+        // 设置模块名称为文件名
+        M->setModuleIdentifier(bc_file);
+        
+        outs() << "✓ (" << M->size() << " functions, " 
+               << M->getGlobalList().size() << " globals)\n";
+        
+        modules.push_back(std::move(M));
+        loaded++;
+    }
+    
+    outs() << "\nModule loading summary: " << loaded << "/" << total << " modules loaded\n";
+    
+    if (loaded == 0) {
+        errs() << "Error: No modules loaded successfully\n";
+        return false;
+    }
+    
+    // 构建增强符号表
+    buildEnhancedSymbolTable();
+    
+    // 创建专门的分析器
+    createSpecializedAnalyzers();
+    
+    outs() << "Cross-module analysis setup completed\n\n";
+    return true;
+}
+
+void CrossModuleAnalyzer::buildEnhancedSymbolTable() {
+    outs() << "Building enhanced symbol table...\n";
+    
+    size_t global_funcs = 0, static_funcs = 0;
+    size_t global_vars = 0, static_vars = 0;
+    size_t structs = 0;
+    
+    // 遍历所有模块
+    for (auto& M : modules) {
+        Module* mod = M.get();
+        enhanced_symbols.module_by_name[mod->getName().str()] = mod;
+        
+        // 分析函数
+        for (auto& F : *mod) {
+            if (F.isDeclaration()) {
+                enhanced_symbols.external_functions.insert(F.getName().str());
+                continue;
+            }
+            
+            enhanced_symbols.function_to_module[&F] = mod;
+            
+            SymbolScope scope = analyzeFunctionScope(&F);
+            SymbolInfo info;
+            info.name = F.getName().str();
+            info.mangled_name = F.getName().str();
+            info.module_name = mod->getName().str();
+            info.scope = scope;
+            info.is_definition = true;
+            
+            // 添加到适当的符号表
+            enhanced_symbols.functions_by_name[info.name].push_back(std::make_pair(&F, info));
+            
+            if (scope == SymbolScope::GLOBAL) {
+                enhanced_symbols.global_functions[info.name] = std::make_pair(&F, info);
+                global_funcs++;
+            } else {
+                enhanced_symbols.static_functions[mod->getName().str()].push_back(std::make_pair(&F, info));
+                static_funcs++;
+            }
+            
+            // 添加到函数签名映射
+            std::string signature = getFunctionSignature(&F);
+            enhanced_symbols.signature_to_functions[signature].push_back(&F);
+        }
+        
+        // 分析全局变量
+        for (auto& GV : mod->getGlobalList()) {
+            enhanced_symbols.global_var_to_module[&GV] = mod;
+            
+            SymbolScope scope = analyzeGlobalVariableScope(&GV);
+            SymbolInfo info;
+            info.name = GV.getName().str();
+            info.mangled_name = GV.getName().str();
+            info.module_name = mod->getName().str();
+            info.scope = scope;
+            info.is_definition = !GV.isDeclaration();
+            
+            enhanced_symbols.variables_by_name[info.name].push_back(std::make_pair(&GV, info));
+            
+            if (scope == SymbolScope::GLOBAL) {
+                enhanced_symbols.global_variables[info.name] = std::make_pair(&GV, info);
+                global_vars++;
+            } else {
+                enhanced_symbols.static_variables[mod->getName().str()].push_back(std::make_pair(&GV, info));
+                static_vars++;
+            }
+        }
+        
+        // 收集结构体类型
+        for (auto& ST : mod->getIdentifiedStructTypes()) {
+            if (ST->hasName()) {
+                std::string name = ST->getName().str();
+                enhanced_symbols.struct_types[name] = ST;
+                enhanced_symbols.struct_variants[name].push_back(ST);
+                structs++;
             }
         }
     }
     
-    return candidates;
+    outs() << "Symbol table built:\n";
+    outs() << "  Global functions: " << global_funcs << "\n";
+    outs() << "  Static functions: " << static_funcs << "\n";
+    outs() << "  Global variables: " << global_vars << "\n";
+    outs() << "  Static variables: " << static_vars << "\n";
+    outs() << "  Structure types: " << structs << "\n";
 }
 
-std::vector<FunctionPointerCandidate> DeepFunctionPointerAnalyzer::analyzeGlobalFunctionTable(GlobalVariable* GV) {
-    std::vector<FunctionPointerCandidate> candidates;
-    
-    if (!GV || !GV->hasInitializer()) {
-        return candidates;
+void CrossModuleAnalyzer::createSpecializedAnalyzers() {
+    // 设置数据布局（使用第一个模块的）
+    if (!modules.empty()) {
+        data_layout = std::make_unique<DataLayout>(modules[0]->getDataLayout());
     }
     
-    Constant* init = GV->getInitializer();
-    std::string table_name = GV->getName().str();
-    
-    // 分析数组初始化器
-    if (auto* CA = dyn_cast<ConstantArray>(init)) {
-        for (unsigned i = 0; i < CA->getNumOperands(); ++i) {
-            Value* element = CA->getOperand(i);
-            analyzeFunctionTableElement(element, table_name, "global_function_table", candidates);
-        }
-    }
-    // 分析结构体初始化器
-    else if (auto* CS = dyn_cast<ConstantStruct>(init)) {
-        for (unsigned i = 0; i < CS->getNumOperands(); ++i) {
-            Value* field = CS->getOperand(i);
-            analyzeFunctionTableElement(field, table_name, "global_struct_field", candidates);
-        }
-    }
-    
-    return candidates;
+    // 创建专门的分析器
+    dataflow_analyzer = std::make_unique<DataFlowAnalyzer>(&enhanced_symbols);
+    deep_fp_analyzer = std::make_unique<DeepFunctionPointerAnalyzer>(&enhanced_symbols, dataflow_analyzer.get());
+    memory_analyzer = std::make_unique<EnhancedCrossModuleMemoryAnalyzer>(this, dataflow_analyzer.get(), data_layout.get());
+    asm_analyzer = std::make_unique<InlineAsmAnalyzer>();
 }
 
-InterruptHandlerAnalysis DeepFunctionPointerAnalyzer::analyzeCandidateFunction(Function* F) {
-    if (!F) {
-        return InterruptHandlerAnalysis();
+SymbolScope CrossModuleAnalyzer::analyzeFunctionScope(Function* F) {
+    if (!F) return SymbolScope::STATIC;
+    
+    GlobalValue::LinkageTypes linkage = F->getLinkage();
+    
+    switch (linkage) {
+        case GlobalValue::ExternalLinkage:
+        case GlobalValue::ExternalWeakLinkage:
+            return SymbolScope::GLOBAL;
+        case GlobalValue::InternalLinkage:
+        case GlobalValue::PrivateLinkage:
+            return SymbolScope::STATIC;
+        case GlobalValue::WeakAnyLinkage:
+        case GlobalValue::WeakODRLinkage:
+            return SymbolScope::WEAK;
+        case GlobalValue::CommonLinkage:
+            return SymbolScope::COMMON;
+        default:
+            return SymbolScope::STATIC;
     }
-    
-    // 避免重复分析
-    if (analyzed_functions.find(F) != analyzed_functions.end()) {
-        return InterruptHandlerAnalysis();
-    }
-    
-    analyzed_functions.insert(F);
-    
-    InterruptHandlerAnalysis analysis;
-    
-    // 基本信息
-    analysis.function_name = F->getName().str();
-    analysis.is_confirmed_irq_handler = false; // 候选函数
-    analysis.basic_block_count = F->size();
-    
-    // 获取模块信息
-    Module* owner_module = global_symbols->function_to_module[F];
-    if (owner_module) {
-        analysis.source_file = owner_module->getName().str();
-    }
-    
-    // 简单的内存访问分析（避免递归分析函数指针）
-    analyzeBasicMemoryAccess(F, analysis);
-    
-    return analysis;
 }
 
-//===----------------------------------------------------------------------===//
-// 辅助函数实现
-//===----------------------------------------------------------------------===//
-
-std::string DeepFunctionPointerAnalyzer::buildFunctionSignature(FunctionType* FT) {
-    if (!FT) {
-        return "";
-    }
+SymbolScope CrossModuleAnalyzer::analyzeGlobalVariableScope(GlobalVariable* GV) {
+    if (!GV) return SymbolScope::STATIC;
     
+    GlobalValue::LinkageTypes linkage = GV->getLinkage();
+    
+    switch (linkage) {
+        case GlobalValue::ExternalLinkage:
+        case GlobalValue::ExternalWeakLinkage:
+            return SymbolScope::GLOBAL;
+        case GlobalValue::InternalLinkage:
+        case GlobalValue::PrivateLinkage:
+            return SymbolScope::STATIC;
+        case GlobalValue::WeakAnyLinkage:
+        case GlobalValue::WeakODRLinkage:
+            return SymbolScope::WEAK;
+        case GlobalValue::CommonLinkage:
+            return SymbolScope::COMMON;
+        default:
+            return SymbolScope::STATIC;
+    }
+}
+
+std::string CrossModuleAnalyzer::getFunctionSignature(Function* F) {
+    if (!F) return "";
+    
+    FunctionType* FT = F->getFunctionType();
     std::string signature;
     signature += std::to_string(FT->getReturnType()->getTypeID()) + "_";
     
@@ -260,192 +233,100 @@ std::string DeepFunctionPointerAnalyzer::buildFunctionSignature(FunctionType* FT
     return signature;
 }
 
-int DeepFunctionPointerAnalyzer::analyzeFunctionNamePattern(const std::string& name, std::string& reason) {
-    int confidence_boost = 0;
-    
-    // 检查回调函数命名模式
-    if (name.find("callback") != std::string::npos || 
-        name.find("handler") != std::string::npos || 
-        name.find("interrupt") != std::string::npos || 
-        name.find("irq") != std::string::npos) {
-        confidence_boost += 20;
-        reason += "_callback_pattern";
+Function* CrossModuleAnalyzer::findFunction(const std::string& name, const std::string& module_hint) {
+    // 首先尝试全局函数
+    auto global_it = enhanced_symbols.global_functions.find(name);
+    if (global_it != enhanced_symbols.global_functions.end()) {
+        return global_it->second.first;
     }
     
-    // 检查函数后缀
-    if (name.size() >= 3 && 
-        (name.substr(name.size() - 3) == "_fn" || 
-         name.substr(name.size() - 5) == "_func")) {
-        confidence_boost += 10;
-        reason += "_function_suffix";
-    }
-    
-    return confidence_boost;
-}
-
-SymbolScope DeepFunctionPointerAnalyzer::determineFunctionScope(Function* F) {
-    if (!F) {
-        return SymbolScope::STATIC;
-    }
-    
-    auto global_it = global_symbols->global_functions.find(F->getName().str());
-    return (global_it != global_symbols->global_functions.end()) ? SymbolScope::GLOBAL : SymbolScope::STATIC;
-}
-
-std::string DeepFunctionPointerAnalyzer::getModuleName(Function* F) {
-    if (!F) {
-        return "unknown";
-    }
-    
-    auto module_it = global_symbols->function_to_module.find(F);
-    return (module_it != global_symbols->function_to_module.end()) ? 
-           module_it->second->getName().str() : "unknown";
-}
-
-bool DeepFunctionPointerAnalyzer::isMatchingStructField(GetElementPtrInst* gep1, GetElementPtrInst* gep2, StructType* expected_type) {
-    if (!gep1 || !gep2 || !expected_type) {
-        return false;
-    }
-    
-    // 检查是否是同一个结构体字段
-    if (gep2->getSourceElementType() == expected_type &&
-        gep1->getNumOperands() == gep2->getNumOperands()) {
-        
-        // 比较所有操作数
-        for (unsigned i = 1; i < gep1->getNumOperands(); ++i) {
-            if (gep1->getOperand(i) != gep2->getOperand(i)) {
-                return false;
-            }
-        }
-        return true;
-    }
-    
-    return false;
-}
-
-void DeepFunctionPointerAnalyzer::analyzeFunctionTableElement(Value* element, const std::string& table_name, 
-                                                             const std::string& element_type, 
-                                                             std::vector<FunctionPointerCandidate>& candidates) {
-    if (!element) {
-        return;
-    }
-    
-    Function* func = nullptr;
-    int confidence = 85;
-    std::string reason = element_type + ":" + table_name;
-    
-    if (auto* direct_func = dyn_cast<Function>(element)) {
-        func = direct_func;
-    } else if (auto* CE = dyn_cast<ConstantExpr>(element)) {
-        // 处理常量表达式（如函数指针转换）
-        if (CE->getOpcode() == Instruction::BitCast && CE->getNumOperands() > 0) {
-            if (auto* cast_func = dyn_cast<Function>(CE->getOperand(0))) {
-                func = cast_func;
-                confidence = 80;
-                reason += "_cast";
-            }
-        }
-    }
-    
-    if (func) {
-        SymbolScope scope = determineFunctionScope(func);
-        std::string module_name = getModuleName(func);
-        candidates.emplace_back(func, confidence, reason, module_name, scope);
-    }
-}
-
-std::vector<FunctionPointerCandidate> DeepFunctionPointerAnalyzer::processAndSortCandidates(
-    std::vector<FunctionPointerCandidate> candidates) {
-    
-    if (candidates.empty()) {
-        return candidates;
-    }
-    
-    // 排序（按置信度降序）
-    std::sort(candidates.begin(), candidates.end(), 
-              [](const FunctionPointerCandidate& a, const FunctionPointerCandidate& b) {
-                  return a.confidence > b.confidence;
-              });
-    
-    // 去重（保留置信度最高的）
-    std::vector<FunctionPointerCandidate> unique_candidates;
-    std::set<Function*> seen_functions;
-    
-    for (const auto& candidate : candidates) {
-        if (seen_functions.find(candidate.function) == seen_functions.end()) {
-            seen_functions.insert(candidate.function);
-            unique_candidates.push_back(candidate);
-        }
-    }
-    
-    // 标记需要进一步分析的候选函数
-    for (auto& candidate : unique_candidates) {
-        if (candidate.confidence >= 60 && 
-            analyzed_functions.find(candidate.function) == analyzed_functions.end()) {
-            candidate.requires_further_analysis = true;
-        }
-    }
-    
-    return unique_candidates;
-}
-
-void DeepFunctionPointerAnalyzer::analyzeBasicMemoryAccess(Function* F, InterruptHandlerAnalysis& analysis) {
-    if (!F) {
-        return;
-    }
-    
-    for (auto& BB : *F) {
-        for (auto& I : BB) {
-            MemoryAccessInfo access;
-            bool is_memory_access = false;
-            
-            if (auto* LI = dyn_cast<LoadInst>(&I)) {
-                access.is_write = false;
-                access.confidence = 60;
-                is_memory_access = true;
-                
-                if (dataflow_analyzer) {
-                    analyzeMemoryAccessWithDataFlow(LI->getPointerOperand(), access);
-                }
-                
-            } else if (auto* SI = dyn_cast<StoreInst>(&I)) {
-                access.is_write = true;
-                access.confidence = 60;
-                is_memory_access = true;
-                
-                if (dataflow_analyzer) {
-                    analyzeMemoryAccessWithDataFlow(SI->getPointerOperand(), access);
+    // 如果有模块提示，在该模块中查找静态函数
+    if (!module_hint.empty()) {
+        auto static_it = enhanced_symbols.static_functions.find(module_hint);
+        if (static_it != enhanced_symbols.static_functions.end()) {
+            for (const auto& func_pair : static_it->second) {
+                if (func_pair.second.name == name) {
+                    return func_pair.first;
                 }
             }
-            
-            if (is_memory_access) {
-                analysis.total_memory_accesses.push_back(access);
+        }
+    }
+    
+    // 在所有函数中查找
+    auto all_it = enhanced_symbols.functions_by_name.find(name);
+    if (all_it != enhanced_symbols.functions_by_name.end() && !all_it->second.empty()) {
+        return all_it->second[0].first;
+    }
+    
+    return nullptr;
+}
+
+GlobalVariable* CrossModuleAnalyzer::findGlobalVariable(const std::string& name, const std::string& module_hint) {
+    // 首先尝试全局变量
+    auto global_it = enhanced_symbols.global_variables.find(name);
+    if (global_it != enhanced_symbols.global_variables.end()) {
+        return global_it->second.first;
+    }
+    
+    // 如果有模块提示，在该模块中查找静态变量
+    if (!module_hint.empty()) {
+        auto static_it = enhanced_symbols.static_variables.find(module_hint);
+        if (static_it != enhanced_symbols.static_variables.end()) {
+            for (const auto& var_pair : static_it->second) {
+                if (var_pair.second.name == name) {
+                    return var_pair.first;
+                }
             }
         }
     }
+    
+    // 在所有变量中查找
+    auto all_it = enhanced_symbols.variables_by_name.find(name);
+    if (all_it != enhanced_symbols.variables_by_name.end() && !all_it->second.empty()) {
+        return all_it->second[0].first;
+    }
+    
+    return nullptr;
 }
 
-void DeepFunctionPointerAnalyzer::analyzeMemoryAccessWithDataFlow(Value* ptr, MemoryAccessInfo& access) {
-    if (!ptr || !dataflow_analyzer) {
-        access.type = MemoryAccessInfo::INDIRECT_ACCESS;
-        access.symbol_name = "unknown";
-        access.chain_description = "candidate_function_unknown_access";
-        return;
+std::vector<Function*> CrossModuleAnalyzer::findFunctionsBySignature(const std::string& signature) {
+    auto it = enhanced_symbols.signature_to_functions.find(signature);
+    if (it != enhanced_symbols.signature_to_functions.end()) {
+        return it->second;
     }
-    
-    DataFlowNode flow_info = dataflow_analyzer->getDataFlowInfo(ptr);
-    
-    if (flow_info.node_type == "global") {
-        access.type = MemoryAccessInfo::GLOBAL_VARIABLE;
-        access.symbol_name = flow_info.source_info;
-        access.chain_description = "candidate_function_global_access";
-    } else if (flow_info.node_type == "static") {
-        access.type = MemoryAccessInfo::GLOBAL_VARIABLE;
-        access.symbol_name = flow_info.source_info;
-        access.chain_description = "candidate_function_static_access";
-    } else {
-        access.type = MemoryAccessInfo::INDIRECT_ACCESS;
-        access.symbol_name = "unknown";
-        access.chain_description = "candidate_function_indirect_access";
+    return {};
+}
+
+SymbolScope CrossModuleAnalyzer::getFunctionScope(Function* F) {
+    if (!F) return SymbolScope::STATIC;
+    return analyzeFunctionScope(F);
+}
+
+SymbolScope CrossModuleAnalyzer::getGlobalVariableScope(GlobalVariable* GV) {
+    if (!GV) return SymbolScope::STATIC;
+    return analyzeGlobalVariableScope(GV);
+}
+
+size_t CrossModuleAnalyzer::getTotalFunctions() const {
+    return enhanced_symbols.global_functions.size();
+}
+
+size_t CrossModuleAnalyzer::getTotalGlobalVars() const {
+    return enhanced_symbols.global_variables.size();
+}
+
+size_t CrossModuleAnalyzer::getTotalStaticFunctions() const {
+    size_t total = 0;
+    for (const auto& module_pair : enhanced_symbols.static_functions) {
+        total += module_pair.second.size();
     }
+    return total;
+}
+
+size_t CrossModuleAnalyzer::getTotalStaticVars() const {
+    size_t total = 0;
+    for (const auto& module_pair : enhanced_symbols.static_variables) {
+        total += module_pair.second.size();
+    }
+    return total;
 }
