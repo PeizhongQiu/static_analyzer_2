@@ -7,6 +7,49 @@
 using namespace llvm;
 
 //===----------------------------------------------------------------------===//
+// 辅助函数：检查是否为真正的间接调用
+//===----------------------------------------------------------------------===//
+
+static bool isActualIndirectCall(CallInst* CI) {
+    if (CI->getCalledFunction()) {
+        return false; // 有直接目标，不是间接调用
+    }
+    
+    Value* callee = CI->getCalledOperand();
+    
+    // 检查是否是内联汇编
+    if (isa<InlineAsm>(callee)) {
+        errs() << "DEBUG: Skipping inline assembly call\n";
+        return false;
+    }
+    
+    // 检查是否是常量表达式（可能是直接调用的变形）
+    if (isa<ConstantExpr>(callee)) {
+        errs() << "DEBUG: Skipping constant expression call: " << *callee << "\n";
+        return false;
+    }
+    
+    // 检查是否是直接的函数指针常量
+    if (isa<Function>(callee)) {
+        errs() << "DEBUG: Direct function reference, not indirect: " << callee->getName() << "\n";
+        return false;
+    }
+    
+    // 只有通过寄存器或内存加载的函数指针才是真正的间接调用
+    bool isIndirect = isa<LoadInst>(callee) || isa<Argument>(callee) || isa<PHINode>(callee);
+    
+    if (isIndirect) {
+        errs() << "DEBUG: Found actual indirect call, operand: " << *callee << "\n";
+        errs() << "DEBUG: Operand type: " << *callee->getType() << "\n";
+    } else {
+        errs() << "DEBUG: Not a true indirect call, operand: " << *callee << "\n";
+        errs() << "DEBUG: Operand type: " << *callee->getType() << "\n";
+    }
+    
+    return isIndirect;
+}
+
+//===----------------------------------------------------------------------===//
 // 辅助函数：检查是否为LLVM内置函数
 //===----------------------------------------------------------------------===//
 
@@ -191,17 +234,38 @@ InterruptHandlerAnalysis CrossModuleAnalyzer::analyzeHandlerDeep(Function* F) {
         static_cast<EnhancedCrossModuleMemoryAnalyzer*>(memory_analyzer.get());
     analysis.memory_accesses = enhanced_mem_analyzer->analyzeWithDataFlow(*F);
     
-    // 深度函数调用分析（包括函数指针深度解析）- 带过滤
+    // 深度函数调用分析（包括函数指针深度解析）- 带过滤和调试
     analysis.function_calls = analyzeHandlerFunctionCalls(F);
     
-    // 分析所有间接调用
+    // 分析所有间接调用 - 修复版本
     std::vector<MemoryAccessInfo> indirect_impacts;
+    int potential_indirect_calls = 0;
+    int actual_indirect_calls = 0;
+    
     for (auto& BB : *F) {
         for (auto& I : BB) {
             if (auto* CI = dyn_cast<CallInst>(&I)) {
                 if (!CI->getCalledFunction()) {
+                    potential_indirect_calls++;
+                    
+                    // 添加详细调试信息
+                    errs() << "DEBUG: Potential indirect call in " << F->getName() << "\n";
+                    errs() << "DEBUG: Call instruction: " << *CI << "\n";
+                    errs() << "DEBUG: Called operand: " << *CI->getCalledOperand() << "\n";
+                    errs() << "DEBUG: Operand type: " << *CI->getCalledOperand()->getType() << "\n";
+                    
+                    // 检查是否是真正的间接调用
+                    if (!isActualIndirectCall(CI)) {
+                        errs() << "DEBUG: Skipping non-indirect call\n";
+                        continue;
+                    }
+                    
+                    actual_indirect_calls++;
+                    
                     // 深度分析间接调用
                     auto candidates = deep_fp_analyzer->analyzeDeep(CI->getCalledOperand());
+                    
+                    errs() << "DEBUG: Found " << candidates.size() << " candidates for indirect call\n";
                     
                     for (const auto& candidate : candidates) {
                         if (candidate.requires_further_analysis && candidate.confidence >= 60) {
@@ -234,6 +298,12 @@ InterruptHandlerAnalysis CrossModuleAnalyzer::analyzeHandlerDeep(Function* F) {
             }
         }
     }
+    
+    // 输出调试统计信息
+    errs() << "DEBUG: Function " << F->getName() << " analysis summary:\n";
+    errs() << "DEBUG: Potential indirect calls detected: " << potential_indirect_calls << "\n";
+    errs() << "DEBUG: Actual indirect calls confirmed: " << actual_indirect_calls << "\n";
+    errs() << "DEBUG: Indirect call analyses created: " << analysis.indirect_call_analyses.size() << "\n";
     
     // 合并直接和间接内存访问
     analysis.total_memory_accesses = analysis.memory_accesses;
@@ -277,7 +347,7 @@ InterruptHandlerAnalysis CrossModuleAnalyzer::analyzeHandlerDeep(Function* F) {
     return analysis;
 }
 
-// 函数调用分析实现 - 带过滤
+// 函数调用分析实现 - 带过滤和调试
 std::vector<FunctionCallInfo> CrossModuleAnalyzer::analyzeHandlerFunctionCalls(Function* F) {
     std::vector<FunctionCallInfo> calls;
     
@@ -288,8 +358,11 @@ std::vector<FunctionCallInfo> CrossModuleAnalyzer::analyzeHandlerFunctionCalls(F
                     // 直接函数调用 - 过滤LLVM内置函数
                     std::string callee_name = callee->getName().str();
                     
+                    errs() << "DEBUG: Direct call to: " << callee_name << "\n";
+                    
                     // 跳过LLVM内置函数和编译器生成的函数
                     if (shouldFilterFunction(callee_name)) {
+                        errs() << "DEBUG: Filtering out intrinsic/compiler function: " << callee_name << "\n";
                         continue;
                     }
                     
@@ -327,14 +400,25 @@ std::vector<FunctionCallInfo> CrossModuleAnalyzer::analyzeHandlerFunctionCalls(F
                     
                     calls.push_back(info);
                 } else {
-                    // 间接函数调用 - 使用深度分析
+                    // 潜在的间接函数调用 - 需要验证
+                    errs() << "DEBUG: Checking potential indirect call\n";
+                    
+                    if (!isActualIndirectCall(CI)) {
+                        errs() << "DEBUG: Not an actual indirect call, skipping function pointer analysis\n";
+                        continue;
+                    }
+                    
+                    // 使用深度分析
                     auto candidates = deep_fp_analyzer->analyzeDeep(CI->getCalledOperand());
                     
                     for (const auto& candidate : candidates) {
                         std::string candidate_name = candidate.function->getName().str();
                         
+                        errs() << "DEBUG: Indirect call candidate: " << candidate_name << " (confidence: " << candidate.confidence << ")\n";
+                        
                         // 跳过LLVM内置函数
                         if (shouldFilterFunction(candidate_name)) {
+                            errs() << "DEBUG: Filtering out intrinsic candidate: " << candidate_name << "\n";
                             continue;
                         }
                         
