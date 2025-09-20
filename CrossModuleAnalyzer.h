@@ -1,8 +1,4 @@
-//===- CrossModuleAnalyzer.h - 增强的跨模块分析器 ------------------------===//
-//
-// 支持static/global区分、数据流分析和函数指针深度解析
-//
-//===----------------------------------------------------------------------===//
+//===- CrossModuleAnalyzer.h - 增强的跨模块分析器 with SVF Support -------===//
 
 #ifndef IRQ_ANALYSIS_CROSS_MODULE_ANALYZER_H
 #define IRQ_ANALYSIS_CROSS_MODULE_ANALYZER_H
@@ -12,6 +8,8 @@
 #include "MemoryAccessAnalyzer.h"
 #include "InlineAsmAnalyzer.h"
 #include "JSONOutput.h"
+#include "FilteringEngine.h"
+#include "SVFAnalyzer.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Instructions.h"
@@ -54,8 +52,8 @@ struct SymbolInfo {
 struct EnhancedGlobalSymbolTable {
     // 函数符号表 - 按作用域分类
     std::map<std::string, std::vector<std::pair<Function*, SymbolInfo>>> functions_by_name;
-    std::map<std::string, std::pair<Function*, SymbolInfo>> global_functions;      // 全局函数
-    std::map<std::string, std::vector<std::pair<Function*, SymbolInfo>>> static_functions; // 静态函数（按模块）
+    std::map<std::string, std::pair<Function*, SymbolInfo>> global_functions;
+    std::map<std::string, std::vector<std::pair<Function*, SymbolInfo>>> static_functions;
     std::map<std::string, std::vector<Function*>> signature_to_functions;
     
     // 全局变量符号表 - 按作用域分类
@@ -151,7 +149,7 @@ struct FunctionPointerCandidate {
     std::string match_reason;
     std::string module_source;
     SymbolScope scope;
-    bool requires_further_analysis; // 是否需要进一步分析此函数
+    bool requires_further_analysis;
     
     FunctionPointerCandidate(Function* f, int conf, const std::string& reason, 
                            const std::string& module, SymbolScope s = SymbolScope::GLOBAL)
@@ -163,7 +161,8 @@ class DeepFunctionPointerAnalyzer {
 private:
     EnhancedGlobalSymbolTable* global_symbols;
     DataFlowAnalyzer* dataflow_analyzer;
-    std::set<Function*> analyzed_functions; // 避免重复分析
+    std::set<Function*> analyzed_functions;
+    class CrossModuleAnalyzer* cross_module_analyzer;  // 前向声明引用
     
     /// 根据函数指针类型查找候选函数
     std::vector<FunctionPointerCandidate> findCandidatesByType(FunctionType* FT);
@@ -180,39 +179,10 @@ private:
     /// 分析全局函数指针表
     std::vector<FunctionPointerCandidate> analyzeGlobalFunctionTable(GlobalVariable* GV);
     
-    /// 辅助函数：构建函数签名
-    std::string buildFunctionSignature(FunctionType* FT);
-    
-    /// 辅助函数：分析函数名称模式
-    int analyzeFunctionNamePattern(const std::string& name, std::string& reason);
-    
-    /// 辅助函数：确定函数作用域
-    SymbolScope determineFunctionScope(Function* F);
-    
-    /// 辅助函数：获取模块名称
-    std::string getModuleName(Function* F);
-    
-    /// 辅助函数：检查结构体字段匹配
-    bool isMatchingStructField(GetElementPtrInst* gep1, GetElementPtrInst* gep2, StructType* expected_type);
-    
-    /// 辅助函数：分析函数表元素
-    void analyzeFunctionTableElement(Value* element, const std::string& table_name, 
-                                   const std::string& element_type, 
-                                   std::vector<FunctionPointerCandidate>& candidates);
-    
-    /// 辅助函数：处理和排序候选函数
-    std::vector<FunctionPointerCandidate> processAndSortCandidates(
-        std::vector<FunctionPointerCandidate> candidates);
-    
-    /// 辅助函数：简单内存访问分析
-    void analyzeBasicMemoryAccess(Function* F, InterruptHandlerAnalysis& analysis);
-    
-    /// 辅助函数：基于数据流分析内存访问
-    void analyzeMemoryAccessWithDataFlow(Value* ptr, MemoryAccessInfo& access);
-    
 public:
-    DeepFunctionPointerAnalyzer(EnhancedGlobalSymbolTable* symbols, DataFlowAnalyzer* dfa)
-        : global_symbols(symbols), dataflow_analyzer(dfa) {}
+    DeepFunctionPointerAnalyzer(EnhancedGlobalSymbolTable* symbols, DataFlowAnalyzer* dfa,
+                               CrossModuleAnalyzer* cross_analyzer = nullptr)
+        : global_symbols(symbols), dataflow_analyzer(dfa), cross_module_analyzer(cross_analyzer) {}
     
     /// 深度分析函数指针，返回所有可能的候选函数
     std::vector<FunctionPointerCandidate> analyzeDeep(Value* fp_value);
@@ -222,6 +192,10 @@ public:
     
     /// 清除分析缓存
     void clearCache() { analyzed_functions.clear(); }
+    
+private:
+    /// 获取SVF分析器（如果可用）
+    SVFEnhancedAnalyzer* getSVFAnalyzer();
 };
 
 //===----------------------------------------------------------------------===//
@@ -246,6 +220,13 @@ private:
     std::unique_ptr<MemoryAccessAnalyzer> memory_analyzer;
     std::unique_ptr<InlineAsmAnalyzer> asm_analyzer;
     
+    // SVF 增强分析器 (可选)
+    std::unique_ptr<SVFEnhancedAnalyzer> svf_analyzer;
+    bool enable_svf_analysis;
+    
+    // 过滤引擎
+    std::unique_ptr<FilteringEngine> filtering_engine;
+    
     /// 构建增强的全局符号表
     void buildEnhancedSymbolTable();
     
@@ -262,11 +243,20 @@ private:
     void createSpecializedAnalyzers();
     
 public:
-    CrossModuleAnalyzer() : context(nullptr) {}
+    CrossModuleAnalyzer() : context(nullptr), enable_svf_analysis(false) {}
     ~CrossModuleAnalyzer() = default;
     
     /// 加载所有模块
     bool loadAllModules(const std::vector<std::string>& bc_files, LLVMContext& Context);
+    
+    /// 设置SVF分析选项
+    void enableSVFAnalysis(bool enable = true) { enable_svf_analysis = enable; }
+    bool isSVFEnabled() const { return enable_svf_analysis; }
+    SVFEnhancedAnalyzer* getSVFAnalyzer() { return svf_analyzer.get(); }
+    
+    /// 设置过滤配置
+    void setFilteringConfig(const FilteringConfig& config);
+    FilteringEngine* getFilteringEngine() { return filtering_engine.get(); }
     
     /// 进行增强的跨模块分析
     std::vector<InterruptHandlerAnalysis> analyzeAllHandlers(const std::string& handler_json);

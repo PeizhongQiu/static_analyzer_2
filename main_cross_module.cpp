@@ -1,7 +1,8 @@
-//===- main_cross_module.cpp - 跨模块中断处理函数分析器主程序 --------------===//
+//===- main_cross_module.cpp - 完整的跨模块中断处理函数分析器主程序 --------===//
 
 #include "CrossModuleAnalyzer.h"
 #include "CompileCommandsParser.h"
+#include "FilteringEngine.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/FileSystem.h"
@@ -48,21 +49,27 @@ struct AnalysisConfig {
     std::string compile_commands_path;
     std::string handler_json_path;
     std::string output_path;
+    std::string filtering_level;        // 过滤级别
     size_t max_modules;
     bool verbose;
     bool show_stats;
     bool show_help;
     bool enable_deep_analysis;
     bool enable_dataflow;
+    bool enable_svf_analysis;           // SVF分析选项
+    bool show_filtering_stats;          // 显示过滤统计
     
     AnalysisConfig() : 
         output_path("cross_module_analysis_results.json"),
+        filtering_level("moderate"),    // 默认适度过滤
         max_modules(0),
         verbose(false),
         show_stats(false), 
         show_help(false),
         enable_deep_analysis(true),
-        enable_dataflow(true) {}
+        enable_dataflow(true),
+        enable_svf_analysis(false),     // 默认关闭SVF
+        show_filtering_stats(false) {}
     
     void print() const {
         outs() << "=== Cross-Module IRQ Analysis Configuration ===\n";
@@ -73,8 +80,10 @@ struct AnalysisConfig {
         outs() << "  Results file: " << output_path << "\n";
         outs() << "Analysis options:\n";
         outs() << "  Max modules: " << (max_modules ? std::to_string(max_modules) : "unlimited") << "\n";
+        outs() << "  Filtering level: " << filtering_level << "\n";
         outs() << "  Deep function analysis: " << (enable_deep_analysis ? "enabled" : "disabled") << "\n";
         outs() << "  Data-flow analysis: " << (enable_dataflow ? "enabled" : "disabled") << "\n";
+        outs() << "  SVF analysis: " << (enable_svf_analysis ? "enabled" : "disabled") << "\n";
         outs() << "  Verbose output: " << (verbose ? "enabled" : "disabled") << "\n";
         outs() << "\n";
     }
@@ -85,8 +94,8 @@ struct AnalysisConfig {
 //===----------------------------------------------------------------------===//
 
 void printUsage(const char* program_name) {
-    outs() << "Cross-Module Interrupt Handler Analyzer\n";
-    outs() << "========================================\n";
+    outs() << "Cross-Module Interrupt Handler Analyzer with SVF Support\n";
+    outs() << "========================================================\n";
     outs() << "Advanced static analysis tool for kernel interrupt handlers.\n\n";
     
     outs() << "Usage: " << program_name << " [options]\n\n";
@@ -98,16 +107,38 @@ void printUsage(const char* program_name) {
     outs() << "Optional Options:\n";
     outs() << "  --output=<file>            Output JSON file (default: cross_module_analysis_results.json)\n";
     outs() << "  --max-modules=<number>     Maximum modules to load (default: unlimited)\n";
+    outs() << "  --filter=<level>           Filtering level (default: moderate)\n";
     outs() << "  --no-deep-analysis         Disable deep function pointer analysis\n";
     outs() << "  --no-dataflow             Disable data-flow analysis\n";
+    outs() << "  --svf-analysis            Enable SVF-enhanced pointer analysis\n";
     outs() << "  --verbose                  Enable detailed output\n";
     outs() << "  --stats                    Show comprehensive statistics\n";
+    outs() << "  --filter-stats            Show filtering statistics\n";
     outs() << "  --help, -h                 Show this help message\n\n";
     
+    outs() << "Filtering Levels:\n";
+    FilteringConfigs::printConfigHelp();
+    outs() << "\n";
+    
     outs() << "Examples:\n";
-    outs() << "  Basic analysis:\n";
+    outs() << "  Basic analysis with moderate filtering (recommended):\n";
     outs() << "    " << program_name << " --compile-commands=compile_commands.json \\\n";
     outs() << "                          --handlers=handler.json\n\n";
+    
+    outs() << "  Strict filtering for fuzzing target identification:\n";
+    outs() << "    " << program_name << " --compile-commands=compile_commands.json \\\n";
+    outs() << "                          --handlers=handler.json \\\n";
+    outs() << "                          --filter=strict --filter-stats\n\n";
+    
+    outs() << "  SVF-enhanced analysis:\n";
+    outs() << "    " << program_name << " --compile-commands=compile_commands.json \\\n";
+    outs() << "                          --handlers=handler.json \\\n";
+    outs() << "                          --svf-analysis --verbose\n\n";
+    
+    outs() << "  No filtering (complete analysis):\n";
+    outs() << "    " << program_name << " --compile-commands=compile_commands.json \\\n";
+    outs() << "                          --handlers=handler.json \\\n";
+    outs() << "                          --filter=none\n\n";
 }
 
 bool parseCommandLineArgs(int argc, char** argv, AnalysisConfig& config) {
@@ -121,16 +152,22 @@ bool parseCommandLineArgs(int argc, char** argv, AnalysisConfig& config) {
             config.verbose = true;
         } else if (arg == "--stats") {
             config.show_stats = true;
+        } else if (arg == "--filter-stats") {
+            config.show_filtering_stats = true;
         } else if (arg == "--no-deep-analysis") {
             config.enable_deep_analysis = false;
         } else if (arg == "--no-dataflow") {
             config.enable_dataflow = false;
+        } else if (arg == "--svf-analysis") {
+            config.enable_svf_analysis = true;
         } else if (arg.find("--compile-commands=") == 0) {
             config.compile_commands_path = arg.substr(19);
         } else if (arg.find("--handlers=") == 0) {
             config.handler_json_path = arg.substr(11);
         } else if (arg.find("--output=") == 0) {
             config.output_path = arg.substr(9);
+        } else if (arg.find("--filter=") == 0) {
+            config.filtering_level = arg.substr(9);
         } else if (arg.find("--max-modules=") == 0) {
             std::string value = arg.substr(14);
             if (value.empty() || value.find_first_not_of("0123456789") != std::string::npos) {
@@ -241,9 +278,12 @@ struct AnalysisStatistics {
     size_t high_confidence_accesses;
     size_t cross_module_calls;
     size_t modules_loaded;
+    size_t svf_enhanced_accesses;
+    size_t filtered_accesses;
     
     AnalysisStatistics() : total_time(0), handlers_found(0), total_memory_accesses(0), 
-                          high_confidence_accesses(0), cross_module_calls(0), modules_loaded(0) {}
+                          high_confidence_accesses(0), cross_module_calls(0), modules_loaded(0),
+                          svf_enhanced_accesses(0), filtered_accesses(0) {}
     
     void print() const {
         outs() << "\n=== Analysis Statistics ===\n";
@@ -252,6 +292,12 @@ struct AnalysisStatistics {
         outs() << "  Total memory accesses: " << total_memory_accesses << "\n";
         outs() << "  High confidence accesses: " << high_confidence_accesses << "\n";
         outs() << "  Cross-module calls: " << cross_module_calls << "\n";
+        if (svf_enhanced_accesses > 0) {
+            outs() << "  SVF enhanced accesses: " << svf_enhanced_accesses << "\n";
+        }
+        if (filtered_accesses > 0) {
+            outs() << "  Filtered accesses: " << filtered_accesses << "\n";
+        }
         outs() << "  Total time: " << total_time.count() << " ms\n";
     }
 };
@@ -268,6 +314,9 @@ void collectStatistics(const CrossModuleAnalyzer& analyzer,
         for (const auto& access : analysis.total_memory_accesses) {
             if (access.confidence >= 80) {
                 stats.high_confidence_accesses++;
+            }
+            if (access.chain_description.find("SVF_enhanced") != std::string::npos) {
+                stats.svf_enhanced_accesses++;
             }
         }
         
@@ -299,13 +348,31 @@ int main(int argc, char** argv) {
         return 0;
     }
     
+    // 验证过滤级别
+    auto available_configs = FilteringConfigs::getAvailableConfigNames();
+    if (std::find(available_configs.begin(), available_configs.end(), config.filtering_level) == available_configs.end()) {
+        errs() << "Error: Invalid filtering level: " << config.filtering_level << "\n";
+        errs() << "Available levels: ";
+        for (size_t i = 0; i < available_configs.size(); ++i) {
+            if (i > 0) errs() << ", ";
+            errs() << available_configs[i];
+        }
+        errs() << "\n";
+        return 1;
+    }
+    
     // 显示配置信息
     if (config.verbose) {
         config.print();
     } else {
-        outs() << "Cross-Module IRQ Analysis Tool\n";
+        outs() << "Cross-Module IRQ Analysis Tool with SVF Support\n";
         outs() << "Input: " << config.compile_commands_path << " + " << config.handler_json_path << "\n";
-        outs() << "Output: " << config.output_path << "\n\n";
+        outs() << "Output: " << config.output_path << "\n";
+        outs() << "Filtering: " << config.filtering_level << "\n";
+        if (config.enable_svf_analysis) {
+            outs() << "SVF Analysis: Enabled\n";
+        }
+        outs() << "\n";
     }
     
     // 输入验证
@@ -336,6 +403,23 @@ int main(int argc, char** argv) {
         return 1;
     }
     
+    // 配置SVF分析
+    if (config.enable_svf_analysis) {
+        outs() << "SVF analysis enabled\n";
+        analyzer->enableSVFAnalysis(true);
+    }
+    
+    // 配置过滤引擎
+    FilteringConfig filter_config = FilteringConfigs::getConfigByName(config.filtering_level);
+    analyzer->setFilteringConfig(filter_config);
+    
+    if (config.verbose) {
+        outs() << "Filtering configuration: " << config.filtering_level << "\n";
+        outs() << "  Min confidence threshold: " << filter_config.min_confidence_threshold << "\n";
+        outs() << "  Include constant addresses: " << (filter_config.include_constant_addresses ? "yes" : "no") << "\n";
+        outs() << "  Include dev_id chains: " << (filter_config.include_dev_id_chains ? "yes" : "no") << "\n\n";
+    }
+    
     // 加载模块
     outs() << "Loading modules...\n";
     if (!analyzer->loadAllModules(validation.existing_bc_files, *Context)) {
@@ -346,7 +430,12 @@ int main(int argc, char** argv) {
     }
     
     // 进行分析
-    outs() << "Performing cross-module analysis...\n";
+    outs() << "Performing cross-module analysis";
+    if (config.enable_svf_analysis) {
+        outs() << " with SVF enhancement";
+    }
+    outs() << "...\n";
+    
     std::vector<InterruptHandlerAnalysis> results = analyzer->analyzeAllHandlers(config.handler_json_path);
     
     if (results.empty()) {
@@ -366,17 +455,42 @@ int main(int argc, char** argv) {
     stats.total_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
     collectStatistics(*analyzer, results, stats);
     
+    // 收集过滤统计
+    if (analyzer->getFilteringEngine()) {
+        const auto& filter_stats = analyzer->getFilteringEngine()->getStats();
+        stats.filtered_accesses = filter_stats.total_accesses - filter_stats.remaining_accesses;
+    }
+    
     // 显示结果
     outs() << "\n=== Analysis Completed Successfully ===\n";
     outs() << "📊 Results Summary:\n";
     outs() << "  Interrupt handlers analyzed: " << results.size() << "\n";
     outs() << "  Total memory accesses: " << stats.total_memory_accesses << "\n";
     outs() << "  Cross-module function calls: " << stats.cross_module_calls << "\n";
+    
+    if (config.enable_svf_analysis && stats.svf_enhanced_accesses > 0) {
+        outs() << "  SVF enhanced accesses: " << stats.svf_enhanced_accesses << "\n";
+    }
+    
+    if (stats.filtered_accesses > 0) {
+        outs() << "  Filtered accesses: " << stats.filtered_accesses << "\n";
+    }
+    
     outs() << "📁 Output written to: " << config.output_path << "\n";
     outs() << "⏱️  Total time: " << stats.total_time.count() << " ms\n";
     
     if (config.show_stats) {
         stats.print();
+    }
+    
+    // 显示过滤统计
+    if (config.show_filtering_stats && analyzer->getFilteringEngine()) {
+        analyzer->getFilteringEngine()->getStats().print();
+    }
+    
+    // 显示SVF统计
+    if (config.enable_svf_analysis && analyzer->getSVFAnalyzer()) {
+        analyzer->getSVFAnalyzer()->printAnalysisStatistics();
     }
     
     // 安全清理 - 明确的清理顺序
