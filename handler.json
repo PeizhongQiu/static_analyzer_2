@@ -1,5 +1,5 @@
 {
-  "total_unique_combinations": 87,
+  "total_unique_combinations": 1,
   "combinations": [
     {
       "handler": "aer_irq",

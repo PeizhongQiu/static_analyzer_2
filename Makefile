@@ -1,4 +1,4 @@
-# SVF Interrupt Handler Analyzer - Simple Flat Structure
+# SVF Interrupt Handler Analyzer - Fixed Syntax
 
 # LLVM Configuration
 LLVM_CONFIG = llvm-config
@@ -18,16 +18,17 @@ LDFLAGS = $(LLVM_LDFLAGS) $(LLVM_LIBS) -lpthread -ldl -lm
 # Target
 TARGET = svf_irq_analyzer
 
-# SVF Integration
+# SVF Integration - Fixed library linking
 ifeq ($(SVF_AVAILABLE),1)
     CXXFLAGS += -DSVF_AVAILABLE -I$(SVF_ROOT)/include
-    LDFLAGS += -L$(SVF_ROOT)/lib -lSvf
-    SVF_STATUS = "✅ Available"
+    CXXFLAGS += -fexceptions -frtti
+    LDFLAGS += -L$(SVF_ROOT)/lib -lSvfLLVM -lSvfCore
+    SVF_STATUS = Available_with_SvfCore_and_SvfLLVM
 else
-    SVF_STATUS = "❌ Not Available - REQUIRED"
+    SVF_STATUS = Not_Available
 endif
 
-# Source files (all in root directory)
+# Source files
 SOURCES = main.cpp \
           SVFAnalyzer.cpp \
           SVFJSONOutput.cpp \
@@ -39,158 +40,99 @@ OBJECTS = $(SOURCES:.cpp=.o)
 # Default target
 all: info check-svf $(TARGET)
 
-# Build info
+# Build info - Fixed syntax
 info:
 	@echo "SVF Interrupt Handler Analyzer"
 	@echo "=============================="
 	@echo "Target: $(TARGET)"
 	@echo "LLVM: $(shell $(LLVM_CONFIG) --version)"
 	@echo "SVF Status: $(SVF_STATUS)"
+	@echo "SVF Root: $(SVF_ROOT)"
 	@echo "Files: $(words $(SOURCES)) source files"
 	@echo ""
 
 # Check SVF availability
 check-svf:
 ifeq ($(SVF_AVAILABLE),0)
-	@echo "❌ Error: SVF not found!"
-	@echo "Please install SVF or set SVF_ROOT environment variable."
-	@echo "SVF is required for this analyzer."
+	@echo "Error: SVF not found at $(SVF_ROOT)"
+	@echo "Please install SVF or set SVF_ROOT environment variable"
 	@exit 1
+else
+	@echo "SVF found at $(SVF_ROOT)"
+	@echo "Checking libraries..."
+	@test -f $(SVF_ROOT)/lib/libSvfCore.a || (echo "libSvfCore.a not found" && exit 1)
+	@test -f $(SVF_ROOT)/lib/libSvfLLVM.a || (echo "libSvfLLVM.a not found" && exit 1)
+	@echo "Libraries OK: libSvfCore.a + libSvfLLVM.a"
 endif
 
 # Build target
 $(TARGET): $(OBJECTS)
-	@echo "🔗 Linking $(TARGET)..."
+	@echo "Linking $(TARGET)..."
 	$(CXX) $(OBJECTS) -o $(TARGET) $(LDFLAGS)
-	@echo "✅ Build completed: $(TARGET)"
+	@echo "Build completed: $(TARGET)"
 
 # Compile rules
 %.o: %.cpp
-	@echo "🔨 Compiling $<..."
+	@echo "Compiling $<..."
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 # Clean
 clean:
-	@echo "🧹 Cleaning..."
+	@echo "Cleaning..."
 	rm -f $(OBJECTS) $(TARGET)
-	@echo "✅ Clean completed"
+	@echo "Clean completed"
 
-# Test with sample data
+# Test
 test: $(TARGET)
-	@echo "🧪 Testing $(TARGET)..."
-	./$(TARGET) --compile-commands=compile_commands.json \
-	            --handlers=handler.json \
-	            --output=test_results.json \
-	            --verbose || echo "⚠️  Test requires valid input files"
-
-# Generate clean bitcode files
-prepare-bitcode:
-	@echo "⚙️  Generating clean bitcode files..."
-	@if [ -f "ccjson_to_bc.py" ]; then \
-		python3 ccjson_to_bc.py compile_commands.json; \
+	@echo "Testing $(TARGET)..."
+	@if [ -f "compile_commands.json" ] && [ -f "handler.json" ]; then \
+		./$(TARGET) --compile-commands=compile_commands.json \
+		            --handlers=handler.json \
+		            --output=test_results.json \
+		            --verbose; \
 	else \
-		echo "❌ ccjson_to_bc.py not found"; \
+		echo "Test requires compile_commands.json and handler.json"; \
 	fi
 
-# Development build
+# Debug build
 debug: CXXFLAGS += -g -O0 -DDEBUG
 debug: clean $(TARGET)
-	@echo "🐛 Debug build completed"
+	@echo "Debug build completed"
 
-# Release build  
+# Release build
 release: CXXFLAGS += -O3 -DNDEBUG
 release: clean $(TARGET)
-	@echo "🚀 Release build completed"
+	@echo "Release build completed"
 
-# Install
-PREFIX ?= /usr/local
-install: $(TARGET)
-	@echo "📦 Installing to $(PREFIX)/bin/..."
-	install -d $(PREFIX)/bin
-	install -m 755 $(TARGET) $(PREFIX)/bin/
-	@echo "✅ Installation completed"
-
-# Check all dependencies
+# Check dependencies
 check:
-	@echo "🔍 Checking dependencies..."
-	@which $(LLVM_CONFIG) > /dev/null || (echo "❌ llvm-config not found" && exit 1)
-	@which $(CXX) > /dev/null || (echo "❌ clang++ not found" && exit 1)
-	@which python3 > /dev/null || echo "⚠️  python3 not found (needed for bitcode generation)"
+	@echo "Checking dependencies..."
+	@which $(LLVM_CONFIG) > /dev/null || (echo "llvm-config not found" && exit 1)
+	@which $(CXX) > /dev/null || (echo "clang++ not found" && exit 1)
 	@echo "LLVM Version: $(shell $(LLVM_CONFIG) --version)"
 	@echo "SVF Status: $(SVF_STATUS)"
 ifeq ($(SVF_AVAILABLE),1)
-	@echo "✅ All required dependencies OK"
+	@echo "All dependencies OK"
 else
-	@echo "❌ SVF missing - please install"
+	@echo "SVF missing"
 	@exit 1
 endif
 
-# Show usage help
+# Help
 help:
 	@echo "SVF Interrupt Handler Analyzer"
 	@echo "=============================="
-	@echo ""
 	@echo "Build Commands:"
-	@echo "  make all           - Build analyzer (requires SVF)"
-	@echo "  make clean         - Clean build files"
-	@echo "  make debug         - Build debug version"
-	@echo "  make release       - Build optimized version"
-	@echo "  make install       - Install to system"
-	@echo ""
-	@echo "Preparation:"
-	@echo "  make prepare-bitcode - Generate clean .bc files"
-	@echo "  make check          - Check dependencies"
-	@echo "  make test           - Run test"
+	@echo "  make all     - Build analyzer"
+	@echo "  make clean   - Clean build files"
+	@echo "  make debug   - Build debug version"
+	@echo "  make release - Build optimized version"
+	@echo "  make check   - Check dependencies"
+	@echo "  make test    - Run test"
 	@echo ""
 	@echo "Usage:"
 	@echo "  ./$(TARGET) --compile-commands=cc.json --handlers=h.json"
-	@echo "  ./$(TARGET) --compile-commands=cc.json --handlers=h.json --verbose"
-	@echo "  ./$(TARGET) --compile-commands=cc.json --handlers=h.json --generate-reports"
-	@echo ""
-	@echo "Required Files:"
-	@echo "  compile_commands.json - From kernel build"
-	@echo "  handler.json         - Interrupt handler definitions"
-	@echo "  *.bc files           - Generated by prepare-bitcode"
-	@echo ""
-	@echo "SVF Setup:"
-	@echo "  1. Install SVF from https://github.com/SVF-tools/SVF"
-	@echo "  2. Set SVF_ROOT=/path/to/svf (if not /usr/local/svf)"
-	@echo "  3. Run 'make check' to verify"
 
-# Quick setup for new users
-setup:
-	@echo "🚀 Setting up SVF IRQ Analyzer..."
-	@echo ""
-	@echo "1. Checking dependencies..."
-	@make check || exit 1
-	@echo ""
-	@echo "2. Building analyzer..."
-	@make clean all
-	@echo ""
-	@echo "3. Setup completed! ✅"
-	@echo ""
-	@echo "Next steps:"
-	@echo "  - Place your compile_commands.json in this directory"
-	@echo "  - Create/edit handler.json with your interrupt handlers"
-	@echo "  - Run: make prepare-bitcode"
-	@echo "  - Run: ./$(TARGET) --compile-commands=compile_commands.json --handlers=handler.json"
-
-# Development helpers
-count-lines:
-	@echo "📊 Code statistics:"
-	@wc -l $(SOURCES) *.h | tail -1
-	@echo "Files: $(words $(SOURCES)) .cpp + $(words $(wildcard *.h)) .h"
-
-check-svf-version:
-	@echo "🔍 SVF Version Information:"
-ifeq ($(SVF_AVAILABLE),1)
-	@echo "SVF Root: $(SVF_ROOT)"
-	@ls -la $(SVF_ROOT)/lib/libSvf.* 2>/dev/null || echo "SVF library not found"
-	@ls -la $(SVF_ROOT)/include/SVF-LLVM/ 2>/dev/null | head -3 || echo "SVF headers not found"
-else
-	@echo "SVF not available"
-endif
-
-.PHONY: all info check-svf clean test prepare-bitcode debug release install check help setup count-lines check-svf-version
+.PHONY: all info check-svf clean test debug release check help
 
 .DEFAULT_GOAL := all

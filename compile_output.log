@@ -1,0 +1,38 @@
+SVF Interrupt Handler Analyzer
+==============================
+Target: svf_irq_analyzer
+LLVM: 14.0.0
+SVF Status: Available_with_SvfCore_and_SvfLLVM
+SVF Root: /opt/svf-llvm14
+Files: 5 source files
+
+SVF found at /opt/svf-llvm14
+Checking libraries...
+Libraries OK: libSvfCore.a + libSvfLLVM.a
+Compiling main.cpp...
+clang++ -std=c++17 -Wall -Wno-unused-parameter -I/usr/lib/llvm-14/include -std=c++14   -fno-exceptions -D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -DSVF_AVAILABLE -I/opt/svf-llvm14/include -fexceptions -frtti -c main.cpp -o main.o
+Compiling SVFAnalyzer.cpp...
+clang++ -std=c++17 -Wall -Wno-unused-parameter -I/usr/lib/llvm-14/include -std=c++14   -fno-exceptions -D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -DSVF_AVAILABLE -I/opt/svf-llvm14/include -fexceptions -frtti -c SVFAnalyzer.cpp -o SVFAnalyzer.o
+SVFAnalyzer.cpp:72:25: warning: unused variable 'moduleSet' [-Wunused-variable]
+    SVF::LLVMModuleSet* moduleSet = SVF::LLVMModuleSet::getLLVMModuleSet();
+                        ^
+SVFAnalyzer.cpp:498:22: warning: unused variable 'fp_result' [-Wunused-variable]
+    for (const auto& fp_result : analysis.function_pointer_calls) {
+                     ^
+In file included from SVFAnalyzer.cpp:1:
+./SVFAnalyzer.h:101:10: warning: private field 'enable_field_sensitive' is not used [-Wunused-private-field]
+    bool enable_field_sensitive;
+         ^
+./SVFAnalyzer.h:102:9: warning: private field 'max_analysis_time' is not used [-Wunused-private-field]
+    int max_analysis_time;
+        ^
+4 warnings generated.
+Compiling SVFJSONOutput.cpp...
+clang++ -std=c++17 -Wall -Wno-unused-parameter -I/usr/lib/llvm-14/include -std=c++14   -fno-exceptions -D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -DSVF_AVAILABLE -I/opt/svf-llvm14/include -fexceptions -frtti -c SVFJSONOutput.cpp -o SVFJSONOutput.o
+Compiling CompileCommandsParser.cpp...
+clang++ -std=c++17 -Wall -Wno-unused-parameter -I/usr/lib/llvm-14/include -std=c++14   -fno-exceptions -D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -DSVF_AVAILABLE -I/opt/svf-llvm14/include -fexceptions -frtti -c CompileCommandsParser.cpp -o CompileCommandsParser.o
+Compiling IRQHandlerIdentifier.cpp...
+clang++ -std=c++17 -Wall -Wno-unused-parameter -I/usr/lib/llvm-14/include -std=c++14   -fno-exceptions -D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -DSVF_AVAILABLE -I/opt/svf-llvm14/include -fexceptions -frtti -c IRQHandlerIdentifier.cpp -o IRQHandlerIdentifier.o
+Linking svf_irq_analyzer...
+clang++ main.o SVFAnalyzer.o SVFJSONOutput.o CompileCommandsParser.o IRQHandlerIdentifier.o -o svf_irq_analyzer -L/usr/lib/llvm-14/lib  -lLLVM-14 -lpthread -ldl -lm -L/opt/svf-llvm14/lib -lSvfLLVM -lSvfCore
+Build completed: svf_irq_analyzer
