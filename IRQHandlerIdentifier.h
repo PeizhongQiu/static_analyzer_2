@@ -1,4 +1,4 @@
-//===- IRQHandlerIdentifier.h - Interrupt Handler Identifier ------------===//
+//===- IRQHandlerIdentifier.h - Interrupt Handler Identifier (修复版) ----===//
 //
 // 从handler.json文件读取中断处理函数列表，支持静态函数
 //
@@ -23,14 +23,16 @@ class InterruptHandlerIdentifier {
 private:
     std::vector<std::string> handler_names;
     std::set<Function*> identified_handlers;
-    
-    /// 解析handler.json文件
-    bool parseHandlerJsonFile(const std::string& json_file);
+    size_t total_entries = 0;
+    size_t duplicate_count = 0;
     
     /// 在模块中查找指定名称的函数（支持静态函数）
     Function* findFunctionByName(Module &M, const std::string& func_name);
     
 public:
+    /// 解析handler.json文件 - 公共接口
+    bool parseHandlerJsonFile(const std::string& json_file);
+    
     /// 从handler.json文件加载并识别处理函数
     bool loadHandlersFromJson(const std::string& json_file, Module &M);
     
@@ -58,10 +60,6 @@ public:
     
     /// 检查是否有重复的处理函数
     bool hasDuplicates() const { return duplicate_count > 0; }
-
-private:
-    size_t total_entries = 0;
-    size_t duplicate_count = 0;
 };
 
 #endif // IRQ_ANALYSIS_IRQ_HANDLER_IDENTIFIER_H

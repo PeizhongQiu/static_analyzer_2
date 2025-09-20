@@ -1,10 +1,11 @@
-//===- SVFAnalyzer.cpp - SVF Integration Implementation ------------------===//
+//===- SVFAnalyzer.cpp - SVF分析器核心实现 -----------------------------------===//
 
 #include "SVFAnalyzer.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Constants.h"
-#include "llvm/IR/DataLayout.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/Bitcode/BitcodeReader.h"
+#include "llvm/Support/MemoryBuffer.h"
 #include <chrono>
 #include <algorithm>
 
@@ -22,21 +23,13 @@ bool SVFAnalyzer::isSVFAvailable() {
 #endif
 }
 
-std::string SVFAnalyzer::getSVFVersion() {
-#ifdef SVF_AVAILABLE
-    return "SVF-2.6+"; // 实际版本需要从SVF获取
-#else
-    return "SVF Not Available";
-#endif
-}
-
 //===----------------------------------------------------------------------===//
 // SVF初始化
 //===----------------------------------------------------------------------===//
 
 bool SVFAnalyzer::initialize(const std::vector<std::unique_ptr<Module>>& modules) {
 #ifndef SVF_AVAILABLE
-    errs() << "Warning: SVF not available, falling back to basic analysis\n";
+    errs() << "Error: SVF not available. Please install SVF and rebuild.\n";
     return false;
 #else
     if (modules.empty()) {
@@ -44,23 +37,21 @@ bool SVFAnalyzer::initialize(const std::vector<std::unique_ptr<Module>>& modules
         return false;
     }
     
-    outs() << "Initializing SVF analysis framework...\n";
+    outs() << "Initializing SVF analysis...\n";
     
     auto start_time = std::chrono::high_resolution_clock::now();
     
     try {
-        // 初始化SVF选项
+        // 设置SVF选项
         SVF::Options::EnableAliasCheck(enable_flow_sensitive);
         SVF::Options::EnableThreadCallGraph(false);
-        SVF::Options::MaxFieldLimit(512);  // 增加字段限制以支持复杂结构体
+        SVF::Options::MaxFieldLimit(512);
         
         if (!initializeSVF(modules)) {
-            errs() << "Failed to initialize SVF infrastructure\n";
             return false;
         }
         
         if (!runPointerAnalysis()) {
-            errs() << "Failed to run SVF pointer analysis\n";
             return false;
         }
         
@@ -68,11 +59,10 @@ bool SVFAnalyzer::initialize(const std::vector<std::unique_ptr<Module>>& modules
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
         
         outs() << "SVF initialization completed in " << duration.count() << " ms\n";
-        
         return true;
         
     } catch (const std::exception& e) {
-        errs() << "SVF initialization failed with exception: " << e.what() << "\n";
+        errs() << "SVF initialization failed: " << e.what() << "\n";
         return false;
     }
 #endif
@@ -80,16 +70,9 @@ bool SVFAnalyzer::initialize(const std::vector<std::unique_ptr<Module>>& modules
 
 #ifdef SVF_AVAILABLE
 bool SVFAnalyzer::initializeSVF(const std::vector<std::unique_ptr<Module>>& modules) {
-    // 创建SVF模块
-    std::vector<std::string> module_names;
-    for (const auto& M : modules) {
-        module_names.push_back(M->getName().str());
-    }
-    
     // 构建SVFIR
     SVF::SVFIRBuilder builder(true);
     
-    // 添加所有模块到SVF
     for (const auto& M : modules) {
         builder.buildSVFIR(const_cast<Module*>(M.get()));
     }
@@ -100,31 +83,29 @@ bool SVFAnalyzer::initializeSVF(const std::vector<std::unique_ptr<Module>>& modu
         return false;
     }
     
-    outs() << "SVFIR built successfully with " << svfir->getPAGNodeNum() << " nodes\n";
-    
+    outs() << "SVFIR built with " << svfir->getPAGNodeNum() << " nodes\n";
     return true;
 }
 
 bool SVFAnalyzer::runPointerAnalysis() {
     if (!svfir) {
-        errs() << "SVFIR not initialized\n";
         return false;
     }
     
-    // 创建Andersen指针分析
+    // Andersen指针分析
     ander_pta = std::make_unique<SVF::AndersenWaveDiff>(svfir.get());
     ander_pta->analyze();
     
     outs() << "Andersen pointer analysis completed\n";
     
-    // 如果启用了流敏感分析
+    // 流敏感分析（可选）
     if (enable_flow_sensitive) {
         flow_pta = std::make_unique<SVF::FlowSensitive>(svfir.get());
         flow_pta->analyze();
-        outs() << "Flow-sensitive pointer analysis completed\n";
+        outs() << "Flow-sensitive analysis completed\n";
     }
     
-    // 构建VFG (Value Flow Graph)
+    // 构建VFG
     vfg = std::make_unique<SVF::VFG>(ander_pta->getCallGraph());
     outs() << "VFG built with " << vfg->getTotalNodeNum() << " nodes\n";
     
@@ -133,71 +114,103 @@ bool SVFAnalyzer::runPointerAnalysis() {
 #endif
 
 //===----------------------------------------------------------------------===//
-// 函数指针分析
+// 中断处理函数分析
 //===----------------------------------------------------------------------===//
 
-std::vector<SVFFunctionPointerResult> SVFAnalyzer::analyzeFunctionPointers(Function* F) {
-    std::vector<SVFFunctionPointerResult> results;
+SVFInterruptHandlerAnalysis SVFAnalyzer::analyzeHandler(Function* handler) {
+    SVFInterruptHandlerAnalysis analysis;
     
-    if (!F) {
-        return results;
+    if (!handler) {
+        return analysis;
     }
     
-    outs() << "SVF analyzing function pointers in: " << F->getName() << "\n";
+    analysis.function_name = handler->getName().str();
     
-    for (auto& BB : *F) {
+    // 获取源文件信息
+    if (auto* SP = handler->getSubprogram()) {
+        analysis.source_file = SP->getFilename().str();
+    }
+    
+    outs() << "Analyzing handler: " << analysis.function_name << "\n";
+    
+    // 1. 分析函数指针调用
+    for (auto& BB : *handler) {
         for (auto& I : BB) {
             if (auto* CI = dyn_cast<CallInst>(&I)) {
                 if (!CI->getCalledFunction()) {
-                    // 这是一个间接调用
-                    SVFFunctionPointerResult result = analyzeFunctionPointerCall(CI);
-                    if (!result.possible_targets.empty()) {
-                        results.push_back(result);
+                    // 间接调用
+                    SVFFunctionPointerResult fp_result = analyzeFunctionPointer(CI);
+                    if (!fp_result.possible_targets.empty()) {
+                        analysis.function_pointer_calls.push_back(fp_result);
                     }
                 }
             }
         }
     }
     
-    outs() << "Found " << results.size() << " function pointer call sites\n";
-    return results;
+    // 2. 分析结构体使用
+    analysis.struct_usage = analyzeStructUsage(handler);
+    
+    // 3. 发现访问模式
+    analysis.access_patterns = discoverAccessPatterns(handler);
+    
+    // 4. 分析指向的对象
+    for (auto& BB : *handler) {
+        for (auto& I : BB) {
+            if (auto* LI = dyn_cast<LoadInst>(&I)) {
+                Value* ptr = LI->getPointerOperand();
+                auto points_to = getPointsToSet(ptr);
+                analysis.pointed_objects.insert(points_to.begin(), points_to.end());
+            }
+        }
+    }
+    
+    // 5. 计算精度分数
+    analysis.svf_precision_score = calculatePrecisionScore(analysis);
+    analysis.svf_analysis_complete = true;
+    
+    outs() << "  Function pointers: " << analysis.function_pointer_calls.size() << "\n";
+    outs() << "  Struct types: " << analysis.struct_usage.size() << "\n";
+    outs() << "  Access patterns: " << analysis.access_patterns.size() << "\n";
+    outs() << "  Precision score: " << analysis.svf_precision_score << "\n";
+    
+    return analysis;
 }
 
-SVFFunctionPointerResult SVFAnalyzer::analyzeFunctionPointerCall(CallInst* CI) {
+//===----------------------------------------------------------------------===//
+// 函数指针分析
+//===----------------------------------------------------------------------===//
+
+SVFFunctionPointerResult SVFAnalyzer::analyzeFunctionPointer(CallInst* call) {
     SVFFunctionPointerResult result;
-    result.source_function = CI->getFunction();
-    result.call_site = CI;
+    result.call_site = call;
+    result.source_function = call->getFunction();
     
     // 检查缓存
-    if (fp_analysis_cache.find(CI) != fp_analysis_cache.end()) {
-        return fp_analysis_cache[CI];
+    if (fp_cache.find(call) != fp_cache.end()) {
+        return fp_cache[call];
     }
     
 #ifdef SVF_AVAILABLE
     if (ander_pta) {
-        // 使用SVF分析函数指针目标
-        result.possible_targets = getFunctionTargets(CI);
+        result.possible_targets = getFunctionTargets(call);
         result.analysis_method = "andersen";
         
-        // 如果启用了流敏感分析，使用更精确的结果
         if (flow_pta && enable_flow_sensitive) {
-            // 流敏感分析可能会给出更精确的结果
             result.analysis_method = "flow_sensitive";
             result.is_precise = true;
         }
         
-        // 计算置信度分数
+        // 计算置信度
         for (Function* target : result.possible_targets) {
-            // 基于SVF分析结果计算置信度
-            int confidence = 70; // 基础置信度
+            int confidence = 70;
             
-            // 如果是流敏感分析结果，增加置信度
             if (result.is_precise) {
                 confidence += 20;
             }
             
-            // 基于函数签名匹配调整置信度
-            FunctionType* call_type = CI->getFunctionType();
+            // 基于函数签名匹配
+            FunctionType* call_type = call->getFunctionType();
             FunctionType* target_type = target->getFunctionType();
             
             if (call_type->getReturnType() == target_type->getReturnType() &&
@@ -210,166 +223,47 @@ SVFFunctionPointerResult SVFAnalyzer::analyzeFunctionPointerCall(CallInst* CI) {
     }
 #endif
     
-    // 如果SVF不可用或没有结果，使用基础分析
-    if (result.possible_targets.empty()) {
-        result.analysis_method = "basic_fallback";
-        // 这里可以集成原有的基础函数指针分析逻辑
-    }
-    
-    // 缓存结果
-    fp_analysis_cache[CI] = result;
+    fp_cache[call] = result;
     return result;
 }
 
 #ifdef SVF_AVAILABLE
-std::vector<Function*> SVFAnalyzer::getFunctionTargets(const SVF::CallInst* cs) {
+std::vector<Function*> SVFAnalyzer::getFunctionTargets(CallInst* call) {
     std::vector<Function*> targets;
     
-    if (!ander_pta) {
+    if (!ander_pta || !svfir) {
         return targets;
     }
     
-    // 获取调用点的指针分析信息
-    const SVF::CallSite* call_site = SVF::SVFUtil::getLLVMCallSite(cs);
-    if (!call_site) {
+    // 获取被调用的函数指针
+    Value* callee = call->getCalledOperand();
+    const SVF::SVFValue* svf_callee = svfir->getSVFValue(callee);
+    if (!svf_callee) {
         return targets;
     }
     
-    // 通过SVF获取可能的调用目标
-    const SVF::FunctionSet& target_set = ander_pta->getIndirectCallsites().at(call_site);
+    // 获取指针的points-to集合
+    SVF::NodeID pointer_id = svfir->getValueNode(svf_callee);
+    if (pointer_id == SVF::UNDEF_ID) {
+        return targets;
+    }
     
-    for (const SVF::SVFFunction* svf_func : target_set) {
-        if (Function* llvm_func = const_cast<Function*>(svf_func->getLLVMFun())) {
-            targets.push_back(llvm_func);
+    const SVF::PointsTo& pts = ander_pta->getPts(pointer_id);
+    
+    // 转换为Function*
+    for (SVF::NodeID obj_id : pts) {
+        const SVF::PAGNode* obj_node = svfir->getGNode(obj_id);
+        if (!obj_node) continue;
+        
+        if (const SVF::SVFFunction* svf_func = SVF::SVFUtil::dyn_cast<SVF::SVFFunction>(obj_node->getValue())) {
+            Function* llvm_func = const_cast<Function*>(svf_func->getLLVMFun());
+            if (llvm_func) {
+                targets.push_back(llvm_func);
+            }
         }
     }
     
     return targets;
-}
-#endif
-
-//===----------------------------------------------------------------------===//
-// 指针分析
-//===----------------------------------------------------------------------===//
-
-std::vector<SVFPointerAnalysisResult> SVFAnalyzer::analyzePointers(Function* F) {
-    std::vector<SVFPointerAnalysisResult> results;
-    
-    if (!F) {
-        return results;
-    }
-    
-    for (auto& BB : *F) {
-        for (auto& I : BB) {
-            if (auto* LI = dyn_cast<LoadInst>(&I)) {
-                Value* ptr = LI->getPointerOperand();
-                SVFPointerAnalysisResult result = analyzePointer(ptr);
-                if (result.precision_score > 50) {  // 只保留高质量结果
-                    results.push_back(result);
-                }
-            } else if (auto* SI = dyn_cast<StoreInst>(&I)) {
-                Value* ptr = SI->getPointerOperand();
-                SVFPointerAnalysisResult result = analyzePointer(ptr);
-                if (result.precision_score > 50) {
-                    results.push_back(result);
-                }
-            }
-        }
-    }
-    
-    return results;
-}
-
-SVFPointerAnalysisResult SVFAnalyzer::analyzePointer(Value* ptr) {
-    SVFPointerAnalysisResult result;
-    result.pointer = ptr;
-    
-    // 检查缓存
-    if (pointer_analysis_cache.find(ptr) != pointer_analysis_cache.end()) {
-        return pointer_analysis_cache[ptr];
-    }
-    
-#ifdef SVF_AVAILABLE
-    if (ander_pta && svfir) {
-        // 获取SVF中对应的PAG节点
-        const SVF::PAGNode* pag_node = svfir->getPAG()->getGNode(
-            SVF::SVFUtil::cast<SVF::PAGNode>(svfir->getDefSVFVar(ptr)));
-            
-        if (pag_node) {
-            // 获取points-to集合
-            const SVF::PointsTo& pts = ander_pta->getPts(pag_node->getId());
-            
-            // 转换为LLVM Value集合
-            for (SVF::PointsTo::iterator it = pts.begin(); it != pts.end(); ++it) {
-                const SVF::PAGNode* target_node = svfir->getPAG()->getGNode(*it);
-                if (Value* target_value = svfNodeToLLVMValue(target_node)) {
-                    result.points_to_set.insert(target_value);
-                }
-            }
-            
-            // 分析指针类型
-            if (isa<GlobalVariable>(ptr)) {
-                result.is_global_pointer = true;
-            } else if (isa<AllocaInst>(ptr)) {
-                result.is_stack_pointer = true;
-            }
-            
-            // 计算精度分数
-            result.precision_score = calculatePrecisionScore(result.points_to_set);
-            
-            // 分析访问的结构体字段
-            if (auto* GEP = dyn_cast<GetElementPtrInst>(ptr)) {
-                if (auto* struct_type = dyn_cast<StructType>(GEP->getSourceElementType())) {
-                    auto struct_fields = analyzeStructType(struct_type);
-                    
-                    // 找到被访问的特定字段
-                    if (GEP->getNumOperands() >= 3) {
-                        if (auto* field_idx = dyn_cast<ConstantInt>(GEP->getOperand(2))) {
-                            unsigned idx = field_idx->getZExtValue();
-                            if (idx < struct_fields.size()) {
-                                result.accessed_fields.push_back(struct_fields[idx]);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-#endif
-    
-    // 构建描述字符串
-    std::string desc = "Pointer to ";
-    if (result.is_global_pointer) desc += "global ";
-    if (result.is_stack_pointer) desc += "stack ";
-    if (result.is_heap_pointer) desc += "heap ";
-    desc += "object";
-    
-    if (!result.points_to_set.empty()) {
-        desc += " (points to " + std::to_string(result.points_to_set.size()) + " objects)";
-    }
-    
-    result.pointer_description = desc;
-    
-    // 缓存结果
-    pointer_analysis_cache[ptr] = result;
-    return result;
-}
-
-#ifdef SVF_AVAILABLE
-Value* SVFAnalyzer::svfNodeToLLVMValue(const SVF::PAGNode* node) {
-    if (!node) return nullptr;
-    
-    // 根据SVF节点类型转换为LLVM Value
-    if (const SVF::ValVar* val_var = SVF::SVFUtil::dyn_cast<SVF::ValVar>(node)) {
-        return const_cast<Value*>(val_var->getValue());
-    } else if (const SVF::ObjVar* obj_var = SVF::SVFUtil::dyn_cast<SVF::ObjVar>(node)) {
-        const SVF::MemObj* mem_obj = obj_var->getMemObj();
-        if (mem_obj->isGlobalObj()) {
-            return const_cast<Value*>(mem_obj->getValue());
-        }
-    }
-    
-    return nullptr;
 }
 #endif
 
@@ -384,7 +278,7 @@ std::map<std::string, std::vector<SVFStructFieldInfo>> SVFAnalyzer::analyzeStruc
         return struct_usage;
     }
     
-    // 收集函数中使用的所有结构体类型
+    // 收集函数中使用的结构体类型
     std::set<StructType*> used_structs;
     
     for (auto& BB : *F) {
@@ -421,8 +315,8 @@ std::vector<SVFStructFieldInfo> SVFAnalyzer::analyzeStructType(StructType* ST) {
     }
     
     // 检查缓存
-    if (struct_info_cache.find(ST) != struct_info_cache.end()) {
-        return struct_info_cache[ST];
+    if (struct_cache.find(ST) != struct_cache.end()) {
+        return struct_cache[ST];
     }
     
     std::string struct_name = ST->getName().str();
@@ -433,8 +327,6 @@ std::vector<SVFStructFieldInfo> SVFAnalyzer::analyzeStructType(StructType* ST) {
         field_info.struct_name = struct_name;
         field_info.field_index = i;
         field_info.field_type = ST->getElementType(i);
-        
-        // 构建字段名
         field_info.field_name = "field_" + std::to_string(i);
         
         // 检查是否是函数指针字段
@@ -442,22 +334,15 @@ std::vector<SVFStructFieldInfo> SVFAnalyzer::analyzeStructType(StructType* ST) {
             if (ptr_type->getElementType()->isFunctionTy()) {
                 field_info.is_function_pointer = true;
                 
-#ifdef SVF_AVAILABLE
                 // 使用SVF分析存储在此字段中的函数
-                // 这需要遍历所有对此字段的存储操作
-                if (svfir) {
-                    // 查找对此结构体字段的所有GEP+Store操作
-                    // 这是一个复杂的分析，需要遍历整个SVFIR
-                }
-#endif
+                // 这里可以进一步分析哪些函数被存储到这个字段中
             }
         }
         
         fields.push_back(field_info);
     }
     
-    // 缓存结果
-    struct_info_cache[ST] = fields;
+    struct_cache[ST] = fields;
     return fields;
 }
 
@@ -466,17 +351,13 @@ std::vector<SVFStructFieldInfo> SVFAnalyzer::analyzeStructType(StructType* ST) {
 //===----------------------------------------------------------------------===//
 
 std::vector<SVFMemoryAccessPattern> SVFAnalyzer::discoverAccessPatterns(Function* F) {
-    discovered_patterns.clear();
+    std::vector<SVFMemoryAccessPattern> patterns;
     
-    if (F) {
-        discoverMemoryAccessPatterns(F);
+    if (!F) {
+        return patterns;
     }
     
-    return discovered_patterns;
-}
-
-void SVFAnalyzer::discoverMemoryAccessPatterns(Function* F) {
-    // 收集函数中的所有内存访问
+    // 收集内存访问序列
     std::vector<Value*> access_sequence;
     
     for (auto& BB : *F) {
@@ -493,12 +374,9 @@ void SVFAnalyzer::discoverMemoryAccessPatterns(Function* F) {
         pattern.pattern_name = "sequential_access_" + F->getName().str();
         pattern.access_sequence = access_sequence;
         pattern.frequency = access_sequence.size();
-        
-        // 检查是否是设备访问模式
         pattern.is_device_access_pattern = isDeviceAccessPattern(access_sequence);
-        
-        // 检查是否涉及内核数据结构
         pattern.is_kernel_data_structure = false;
+        
         for (Value* access : access_sequence) {
             if (isKernelDataStructureAccess(access)) {
                 pattern.is_kernel_data_structure = true;
@@ -506,12 +384,14 @@ void SVFAnalyzer::discoverMemoryAccessPatterns(Function* F) {
             }
         }
         
-        discovered_patterns.push_back(pattern);
+        patterns.push_back(pattern);
     }
+    
+    return patterns;
 }
 
 bool SVFAnalyzer::isDeviceAccessPattern(const std::vector<Value*>& access_seq) {
-    // 启发式判断：如果访问序列中包含通过dev_id参数的访问
+    // 检查是否通过dev_id参数访问
     for (Value* access : access_seq) {
         if (auto* LI = dyn_cast<LoadInst>(access)) {
             Value* ptr = LI->getPointerOperand();
@@ -520,8 +400,7 @@ bool SVFAnalyzer::isDeviceAccessPattern(const std::vector<Value*>& access_seq) {
                 if (auto* arg = dyn_cast<Argument>(base)) {
                     Function* F = arg->getParent();
                     if (F && F->arg_size() == 2 && arg->getArgNo() == 1) {
-                        // 这是IRQ处理函数的dev_id参数访问
-                        return true;
+                        return true; // IRQ处理函数的dev_id参数
                     }
                 }
             }
@@ -531,7 +410,6 @@ bool SVFAnalyzer::isDeviceAccessPattern(const std::vector<Value*>& access_seq) {
 }
 
 bool SVFAnalyzer::isKernelDataStructureAccess(Value* ptr) {
-    // 检查是否访问已知的内核数据结构
     if (auto* GEP = dyn_cast<GetElementPtrInst>(ptr)) {
         if (auto* struct_type = dyn_cast<StructType>(GEP->getSourceElementType())) {
             std::string struct_name = struct_type->getName().str();
@@ -553,91 +431,96 @@ bool SVFAnalyzer::isKernelDataStructureAccess(Value* ptr) {
     return false;
 }
 
-int SVFAnalyzer::calculatePrecisionScore(const std::set<Value*>& points_to_set) {
-    if (points_to_set.empty()) {
-        return 0;
-    }
-    
-    // 计算精度分数：points-to集合越小，精度越高
-    int base_score = 100 - std::min(static_cast<int>(points_to_set.size()) * 10, 80);
-    
-    // 根据points-to目标的类型调整分数
-    for (Value* target : points_to_set) {
-        if (isa<GlobalVariable>(target)) {
-            base_score += 5;  // 全局变量增加置信度
-        } else if (isa<AllocaInst>(target)) {
-            base_score += 3;  // 栈变量增加置信度
-        }
-    }
-    
-    return std::min(base_score, 100);
-}
-
 //===----------------------------------------------------------------------===//
-// 增强现有分析
+// 指针分析
 //===----------------------------------------------------------------------===//
 
-MemoryAccessInfo SVFAnalyzer::enhanceMemoryAccessInfo(const MemoryAccessInfo& original, Value* ptr) {
-    MemoryAccessInfo enhanced = original;
+std::set<Value*> SVFAnalyzer::getPointsToSet(Value* pointer) {
+    std::set<Value*> result;
     
-    if (!ptr) {
-        return enhanced;
+#ifdef SVF_AVAILABLE
+    if (!ander_pta || !svfir || !pointer) {
+        return result;
     }
     
-    // 使用SVF分析增强内存访问信息
-    SVFPointerAnalysisResult svf_result = analyzePointer(ptr);
-    
-    if (svf_result.precision_score > enhanced.confidence) {
-        enhanced.confidence = svf_result.precision_score;
-        enhanced.chain_description += " (SVF enhanced)";
-        
-        // 如果SVF发现了更精确的信息，更新访问类型
-        if (svf_result.is_global_pointer && enhanced.type == MemoryAccessInfo::INDIRECT_ACCESS) {
-            enhanced.type = MemoryAccessInfo::GLOBAL_VARIABLE;
-        }
-        
-        // 添加结构体字段信息
-        if (!svf_result.accessed_fields.empty()) {
-            const auto& field = svf_result.accessed_fields[0];
-            enhanced.struct_type_name = field.struct_name;
-            enhanced.chain_description += " -> " + field.field_name;
-            
-            if (field.is_function_pointer) {
-                enhanced.chain_description += " (function pointer field)";
-            }
-        }
+    const SVF::SVFValue* svf_ptr = svfir->getSVFValue(pointer);
+    if (!svf_ptr) {
+        return result;
     }
     
-    return enhanced;
+    SVF::NodeID ptr_id = svfir->getValueNode(svf_ptr);
+    if (ptr_id == SVF::UNDEF_ID) {
+        return result;
+    }
+    
+    const SVF::PointsTo& pts = ander_pta->getPts(ptr_id);
+    
+    for (SVF::NodeID obj_id : pts) {
+        const SVF::PAGNode* obj_node = svfir->getGNode(obj_id);
+        if (!obj_node) continue;
+        
+        Value* llvm_value = svfNodeToLLVMValue(obj_node);
+        if (llvm_value) {
+            result.insert(llvm_value);
+        }
+    }
+#endif
+    
+    return result;
 }
 
-std::vector<FunctionPointerTarget> SVFAnalyzer::enhanceFunctionPointerAnalysis(CallInst* CI) {
-    std::vector<FunctionPointerTarget> targets;
+#ifdef SVF_AVAILABLE
+Value* SVFAnalyzer::svfNodeToLLVMValue(const SVF::PAGNode* node) {
+    if (!node) return nullptr;
     
-    if (!CI) {
-        return targets;
+    if (const SVF::ValVar* val_var = SVF::SVFUtil::dyn_cast<SVF::ValVar>(node)) {
+        return const_cast<Value*>(val_var->getValue()->getValue());
+    } else if (const SVF::ObjVar* obj_var = SVF::SVFUtil::dyn_cast<SVF::ObjVar>(node)) {
+        const SVF::MemObj* mem_obj = obj_var->getMemObj();
+        if (mem_obj->isGlobalObj()) {
+            return const_cast<Value*>(mem_obj->getValue()->getValue());
+        }
     }
     
-    SVFFunctionPointerResult svf_result = analyzeFunctionPointerCall(CI);
+    return nullptr;
+}
+#endif
+
+//===----------------------------------------------------------------------===//
+// 分析质量评估
+//===----------------------------------------------------------------------===//
+
+double SVFAnalyzer::calculatePrecisionScore(const SVFInterruptHandlerAnalysis& analysis) {
+    double total_score = 0.0;
+    int scored_items = 0;
     
-    // 转换SVF结果为标准格式
-    for (Function* target : svf_result.possible_targets) {
-        int confidence = 50;  // 默认置信度
-        
-        auto conf_it = svf_result.confidence_scores.find(target);
-        if (conf_it != svf_result.confidence_scores.end()) {
-            confidence = conf_it->second;
+    // 函数指针分析精度
+    for (const auto& fp_result : analysis.function_pointer_calls) {
+        if (fp_result.is_precise) {
+            total_score += 90.0;
+        } else {
+            total_score += 70.0;
         }
-        
-        std::string reason = "SVF " + svf_result.analysis_method;
-        if (svf_result.is_precise) {
-            reason += " (precise)";
-        }
-        
-        targets.emplace_back(target, confidence, reason);
+        scored_items++;
     }
     
-    return targets;
+    // 结构体分析精度
+    for (const auto& struct_pair : analysis.struct_usage) {
+        total_score += 80.0;
+        scored_items++;
+    }
+    
+    // 访问模式精度
+    for (const auto& pattern : analysis.access_patterns) {
+        if (pattern.is_device_access_pattern || pattern.is_kernel_data_structure) {
+            total_score += 85.0;
+        } else {
+            total_score += 60.0;
+        }
+        scored_items++;
+    }
+    
+    return scored_items > 0 ? total_score / scored_items : 0.0;
 }
 
 //===----------------------------------------------------------------------===//
@@ -648,97 +531,118 @@ void SVFAnalyzer::printStatistics() const {
     outs() << "\n=== SVF Analysis Statistics ===\n";
     outs() << "SVF Available: " << (isSVFAvailable() ? "Yes" : "No") << "\n";
     
-    if (isSVFAvailable()) {
-        outs() << "SVF Version: " << getSVFVersion() << "\n";
-        
 #ifdef SVF_AVAILABLE
-        if (svfir) {
-            outs() << "SVFIR Nodes: " << svfir->getPAGNodeNum() << "\n";
-        }
-        
-        if (ander_pta) {
-            outs() << "Andersen PTA: Enabled\n";
-        }
-        
-        if (flow_pta) {
-            outs() << "Flow-sensitive PTA: Enabled\n";
-        }
-        
-        if (vfg) {
-            outs() << "VFG Nodes: " << vfg->getTotalNodeNum() << "\n";
-        }
-#endif
+    if (svfir) {
+        outs() << "SVFIR Nodes: " << svfir->getPAGNodeNum() << "\n";
     }
     
-    outs() << "Function Pointer Analyses: " << fp_analysis_cache.size() << "\n";
-    outs() << "Pointer Analyses: " << pointer_analysis_cache.size() << "\n";
-    outs() << "Struct Type Analyses: " << struct_info_cache.size() << "\n";
-    outs() << "Discovered Patterns: " << discovered_patterns.size() << "\n";
+    if (ander_pta) {
+        outs() << "Andersen PTA: Enabled\n";
+    }
+    
+    if (flow_pta) {
+        outs() << "Flow-sensitive PTA: Enabled\n";
+    }
+    
+    if (vfg) {
+        outs() << "VFG Nodes: " << vfg->getTotalNodeNum() << "\n";
+    }
+#endif
+    
+    outs() << "Function Pointer Analyses: " << fp_cache.size() << "\n";
+    outs() << "Struct Type Analyses: " << struct_cache.size() << "\n";
 }
 
 void SVFAnalyzer::clearCache() {
-    fp_analysis_cache.clear();
-    pointer_analysis_cache.clear();
-    struct_info_cache.clear();
-    discovered_patterns.clear();
+    fp_cache.clear();
+    struct_cache.clear();
 }
 
 //===----------------------------------------------------------------------===//
-// SVF集成助手实现
+// SVFIRQAnalyzer 实现
 //===----------------------------------------------------------------------===//
 
-bool SVFIntegrationHelper::initialize(const std::vector<std::unique_ptr<Module>>& modules) {
-    if (!SVFAnalyzer::isSVFAvailable()) {
-        errs() << "Warning: SVF is not available, using fallback analysis\n";
-        svf_available = false;
-        return false;  // 不是错误，只是功能降级
-    }
-    
-    svf_analyzer = new SVFAnalyzer();
-    if (!svf_analyzer) {
-        errs() << "Failed to create SVF analyzer\n";
+bool SVFIRQAnalyzer::loadModules(const std::vector<std::string>& bc_files) {
+    if (!context) {
+        errs() << "Error: No LLVM context provided\n";
         return false;
     }
     
+    modules.clear();
+    
+    outs() << "Loading " << bc_files.size() << " bitcode files...\n";
+    
+    size_t loaded = 0;
+    for (const auto& bc_file : bc_files) {
+        auto BufferOrErr = MemoryBuffer::getFile(bc_file);
+        if (std::error_code EC = BufferOrErr.getError()) {
+            errs() << "Error reading " << bc_file << ": " << EC.message() << "\n";
+            continue;
+        }
+        
+        auto ModuleOrErr = parseBitcodeFile(BufferOrErr.get()->getMemBufferRef(), *context);
+        if (!ModuleOrErr) {
+            errs() << "Error parsing " << bc_file << ": " << toString(ModuleOrErr.takeError()) << "\n";
+            continue;
+        }
+        
+        auto M = std::move(ModuleOrErr.get());
+        M->setModuleIdentifier(bc_file);
+        modules.push_back(std::move(M));
+        loaded++;
+    }
+    
+    outs() << "Loaded " << loaded << "/" << bc_files.size() << " modules\n";
+    
+    if (loaded == 0) {
+        return false;
+    }
+    
+    // 初始化SVF分析器
+    svf_analyzer = std::make_unique<SVFAnalyzer>();
     if (!svf_analyzer->initialize(modules)) {
-        delete svf_analyzer;
-        svf_analyzer = nullptr;
         errs() << "Failed to initialize SVF analyzer\n";
         return false;
     }
     
-    svf_available = true;
-    outs() << "SVF integration successfully initialized\n";
     return true;
 }
 
-MemoryAccessInfo SVFIntegrationHelper::createEnhancedMemoryAccess(const MemoryAccessInfo& original, Value* ptr) {
-    if (!isInitialized()) {
-        return original;  // 返回原始分析结果
-    }
-    
-    return svf_analyzer->enhanceMemoryAccessInfo(original, ptr);
-}
-
-std::vector<FunctionPointerTarget> SVFIntegrationHelper::createEnhancedFunctionPointerTargets(CallInst* CI) {
-    std::vector<FunctionPointerTarget> targets;
+std::vector<SVFInterruptHandlerAnalysis> SVFIRQAnalyzer::analyzeAllHandlers(const std::vector<std::string>& handler_names) {
+    std::vector<SVFInterruptHandlerAnalysis> results;
     
     if (!isInitialized()) {
-        return targets;  // 返回空结果，调用者会使用基础分析
+        errs() << "SVF analyzer not initialized\n";
+        return results;
     }
     
-    return svf_analyzer->enhanceFunctionPointerAnalysis(CI);
-}
-
-void SVFIntegrationHelper::printStatus() const {
-    outs() << "=== SVF Integration Status ===\n";
-    outs() << "SVF Available: " << SVFAnalyzer::isSVFAvailable() << "\n";
-    outs() << "SVF Initialized: " << isInitialized() << "\n";
+    // 在所有模块中查找处理函数
+    std::vector<Function*> found_handlers;
     
-    if (isInitialized()) {
-        outs() << "SVF Version: " << SVFAnalyzer::getSVFVersion() << "\n";
-        svf_analyzer->printStatistics();
-    } else {
-        outs() << "Using fallback analysis methods\n";
+    for (const auto& handler_name : handler_names) {
+        for (auto& M : modules) {
+            for (auto& F : *M) {
+                if (F.getName() == handler_name) {
+                    found_handlers.push_back(&F);
+                    outs() << "Found handler: " << handler_name << " in " << M->getName() << "\n";
+                    break;
+                }
+            }
+        }
     }
+    
+    if (found_handlers.empty()) {
+        outs() << "No interrupt handlers found\n";
+        return results;
+    }
+    
+    outs() << "\nAnalyzing " << found_handlers.size() << " handlers with SVF...\n";
+    
+    // 分析每个处理函数
+    for (Function* handler : found_handlers) {
+        SVFInterruptHandlerAnalysis analysis = svf_analyzer->analyzeHandler(handler);
+        results.push_back(analysis);
+    }
+    
+    return results;
 }
