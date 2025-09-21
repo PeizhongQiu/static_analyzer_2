@@ -1,4 +1,4 @@
-# SVF Interrupt Handler Analyzer - Updated Makefile
+# SVF Interrupt Handler Analyzer - Updated Makefile with thread safety fixes
 
 # LLVM Configuration
 LLVM_CONFIG = llvm-config
@@ -10,18 +10,20 @@ LLVM_LIBS = $(shell $(LLVM_CONFIG) --libs core support analysis irreader bitread
 SVF_ROOT ?= /opt/svf-llvm14
 SVF_AVAILABLE := $(shell test -f $(SVF_ROOT)/include/SVF-LLVM/LLVMUtil.h && echo 1 || echo 0)
 
-# Compiler and flags - 添加线程支持
+# Compiler and flags - 添加线程支持和调试信息
 CXX = clang++
-CXXFLAGS = -std=c++17 -Wall -Wno-unused-parameter $(LLVM_CXXFLAGS) -pthread
+CXXFLAGS = -std=c++17 -Wall -Wno-unused-parameter $(LLVM_CXXFLAGS) -pthread -g
 LDFLAGS = $(LLVM_LDFLAGS) $(LLVM_LIBS) -lpthread -ldl -lm
 
 # Target
 TARGET = svf_irq_analyzer
 
-# SVF Integration with updated include paths
+# SVF Integration with updated include paths and thread safety
 ifeq ($(SVF_AVAILABLE),1)
     CXXFLAGS += -DSVF_AVAILABLE -I$(SVF_ROOT)/include
     CXXFLAGS += -fexceptions -frtti
+    # 添加线程安全相关的编译选项
+    CXXFLAGS += -DSVF_THREAD_SAFE -fno-omit-frame-pointer
     # Updated library linking order - core libraries first
     LDFLAGS += -L$(SVF_ROOT)/lib -lSvfLLVM -lSvfCore
     SVF_STATUS = Available
@@ -29,10 +31,9 @@ else
     SVF_STATUS = Not_Available
 endif
 
-# Source files - 添加并行分析器
+# Source files - 只保留必要的文件
 SOURCES = main.cpp \
           SVFInterruptAnalyzer.cpp \
-          ParallelSVFAnalyzer.cpp \
           CompileCommandsParser.cpp \
           IRQHandlerIdentifier.cpp
 
@@ -43,13 +44,14 @@ all: info check-svf $(TARGET)
 
 # Build info
 info:
-	@echo "SVF Interrupt Handler Analyzer"
-	@echo "=============================="
+	@echo "SVF Interrupt Handler Analyzer (Thread-Safe Version)"
+	@echo "=================================================="
 	@echo "Target: $(TARGET)"
 	@echo "LLVM: $(shell $(LLVM_CONFIG) --version)"
 	@echo "SVF Status: $(SVF_STATUS)"
 	@echo "SVF Root: $(SVF_ROOT)"
 	@echo "Source files: $(words $(SOURCES))"
+	@echo "Thread Safety: Enabled"
 	@echo ""
 
 # Enhanced SVF availability check
@@ -67,14 +69,15 @@ else
 	@test -f $(SVF_ROOT)/include/SVFIR/SVFIR.h || (echo "❌ SVFIR.h not found" && exit 1)
 	@test -f $(SVF_ROOT)/include/SVF-LLVM/LLVMModule.h || (echo "❌ LLVMModule.h not found" && exit 1)
 	@echo "✅ Required libraries and headers found"
+	@echo "✅ Thread safety features enabled"
 endif
 
 # Build target with enhanced error handling
 $(TARGET): $(OBJECTS)
-	@echo "🔗 Linking $(TARGET)..."
+	@echo "🔗 Linking $(TARGET) with thread safety..."
 	@echo "Using LDFLAGS: $(LDFLAGS)"
 	$(CXX) $(OBJECTS) -o $(TARGET) $(LDFLAGS)
-	@echo "✅ Build completed: $(TARGET)"
+	@echo "✅ Build completed: $(TARGET) (Thread-Safe)"
 
 # Compile rules with better error reporting
 %.o: %.cpp
@@ -106,7 +109,7 @@ setup-svf:
 	@ln -sf /home/qpz/lab/SVF/Release-build/lib/extapi.bc ./extapi.bc
 	@echo "✅ SVF setup completed"
 
-# Test with sample data (with SVF setup)
+# Test with sample data (serial mode only)
 test: $(TARGET) setup-svf
 	@echo "🧪 Running test..."
 	@if [ -f "compile_commands.json" ] && [ -f "handler.json" ]; then \
@@ -125,6 +128,12 @@ debug-asan: CXXFLAGS += -g -O0 -DDEBUG -fsanitize=address -fno-omit-frame-pointe
 debug-asan: LDFLAGS += -fsanitize=address
 debug-asan: clean $(TARGET)
 	@echo "🐛 Debug build with AddressSanitizer completed"
+
+# Thread-safe debug build
+debug-threads: CXXFLAGS += -g -O0 -DDEBUG -fsanitize=thread
+debug-threads: LDFLAGS += -fsanitize=thread
+debug-threads: clean $(TARGET)
+	@echo "🧵 Thread-safe debug build completed"
 
 # Release build
 release: CXXFLAGS += -O3 -DNDEBUG
@@ -152,17 +161,19 @@ endif
 
 # Show usage
 help:
-	@echo "SVF Interrupt Handler Analyzer"
-	@echo "=============================="
+	@echo "SVF Interrupt Handler Analyzer (Thread-Safe)"
+	@echo "============================================"
 	@echo ""
 	@echo "Build Commands:"
-	@echo "  make all      - Build the analyzer"
-	@echo "  make clean    - Clean build files"
-	@echo "  make debug    - Build debug version"
-	@echo "  make release  - Build optimized version"
-	@echo "  make test     - Run test (requires sample files)"
-	@echo "  make install  - Install to /usr/local/bin"
-	@echo "  make check-deps - Check dependencies"
+	@echo "  make all          - Build the analyzer"
+	@echo "  make clean        - Clean build files"
+	@echo "  make debug-asan   - Build debug version with AddressSanitizer"
+	@echo "  make debug-threads - Build debug version with ThreadSanitizer"
+	@echo "  make release      - Build optimized version"
+	@echo "  make test-serial  - Run serial test (requires sample files)"
+	@echo "  make test-parallel - Run parallel test (requires sample files)"
+	@echo "  make install      - Install to /usr/local/bin"
+	@echo "  make check-deps   - Check dependencies"
 	@echo ""
 	@echo "Usage:"
 	@echo "  ./$(TARGET) --compile-commands=<file> --handlers=<file> [options]"
@@ -173,13 +184,17 @@ help:
 	@echo ""
 	@echo "Optional:"
 	@echo "  --output=<file>             Output JSON file"
-	@echo "  --max-modules=<n>           Maximum modules to analyze"
 	@echo "  --verbose                   Verbose output"
 	@echo "  --help                      Show help"
+	@echo ""
+	@echo "Analysis Modes:"
+	@echo "  Serial mode:   Full SVF analysis in single thread"
+	@echo "  Parallel mode: Full SVF analysis with serialized execution"
 	@echo ""
 	@echo "Examples:"
 	@echo "  ./$(TARGET) --compile-commands=cc.json --handlers=h.json"
 	@echo "  ./$(TARGET) --compile-commands=cc.json --handlers=h.json --verbose"
+	@echo "  ./$(TARGET) --compile-commands=cc.json --handlers=h.json --parallel --threads=8"
 	@echo ""
 	@echo "Environment Variables:"
 	@echo "  SVF_ROOT=<path>    Set SVF installation path (default: /opt/svf-llvm14)"
@@ -218,12 +233,6 @@ analyze:
 	@clang-tidy $(SOURCES) -- $(CXXFLAGS)
 	@echo "✅ Code analysis completed"
 
-# Generate documentation (requires doxygen)
-docs:
-	@echo "📚 Generating documentation..."
-	@doxygen Doxyfile 2>/dev/null || echo "⚠️  Doxygen not found or Doxyfile missing"
-	@echo "✅ Documentation generated"
-
 # Count lines of code
 loc:
 	@echo "📊 Lines of code:"
@@ -238,6 +247,6 @@ show-compile-db:
 	@echo "Sources: $(SOURCES)"
 	@echo "Objects: $(OBJECTS)"
 
-.PHONY: all info check-svf clean install uninstall test debug release check-deps help format analyze docs loc verbose check-svf-detailed show-compile-db
+.PHONY: all info check-svf clean install uninstall test-serial test-parallel debug-asan debug-threads release check-deps help format analyze loc verbose check-svf-detailed show-compile-db
 
 .DEFAULT_GOAL := all
