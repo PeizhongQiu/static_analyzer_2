@@ -1,3 +1,15 @@
+#include <fstream>
+#ifdef SVF_AVAILABLE
+#include "SVF-LLVM/LLVMUtil.h"
+#include "SVF-LLVM/SVFIRBuilder.h"
+#include "SVF-LLVM/LLVMModule.h"
+#include "SVFIR/SVFIR.h"
+#include "WPA/Andersen.h"
+#include "Graphs/VFG.h"
+#include "Util/Options.h"
+#include "Util/ExtAPI.h"
+#endif
+
 //===- SVFInterruptAnalyzer.cpp - SVF中断处理函数分析器实现 --------------===//
 
 #include "SVFInterruptAnalyzer.h"
@@ -10,6 +22,15 @@
 #include <fstream>
 #include <chrono>
 #include <algorithm>
+
+#ifdef SVF_AVAILABLE
+#include "SVF-LLVM/LLVMUtil.h"
+#include "SVF-LLVM/SVFIRBuilder.h"
+#include "SVF-LLVM/LLVMModule.h"
+#include "WPA/Andersen.h"
+#include "Graphs/VFG.h"
+#include "Util/Options.h"
+#endif
 
 using namespace llvm;
 
@@ -104,7 +125,17 @@ bool SVFInterruptAnalyzer::initializeSVFCore() {
         outs() << "  ... and " << (loaded_bc_files.size() - 10) << " more files\n";
     }
     
-    // 1. 构建SVFIR
+    // 使用ExtAPI::setExtBcPath()设置extapi.bc路径
+    std::string extapi_path = "/home/qpz/lab/SVF/Release-build/lib/extapi.bc";
+    outs() << "Setting extapi.bc path: " << extapi_path << "\n";
+    
+    // 在buildSVFModule之前调用setExtBcPath
+    SVF::ExtAPI::setExtBcPath(extapi_path);
+    
+    // 使用正确的buildSVFModule API
+    SVF::LLVMModuleSet::getLLVMModuleSet()->buildSVFModule(loaded_bc_files);
+    
+    // 1. 构建SVFIR - 直接使用SVFIRBuilder
     SVF::SVFIRBuilder builder;
     svfir = std::unique_ptr<SVF::SVFIR>(builder.build());
     
@@ -118,7 +149,11 @@ bool SVFInterruptAnalyzer::initializeSVFCore() {
     outs() << "  Total nodes: " << svfir->getTotalNodeNum() << "\n";
     outs() << "  Total edges: " << svfir->getTotalEdgeNum() << "\n";
     outs() << "  Value nodes: " << svfir->getValueNodeNum() << "\n";
-    outs() << "  Object nodes: " << svfir->getObjNodeNum() << "\n";
+    
+    // 使用正确的API获取对象节点数量
+    // 通过LLVMModuleSet获取
+    SVF::LLVMModuleSet* moduleSet = SVF::LLVMModuleSet::getLLVMModuleSet();
+    outs() << "  Object nodes: " << moduleSet->getObjNodeNum() << "\n";
     
     if (svfir->getTotalNodeNum() == 0) {
         errs() << "⚠️  SVFIR has no nodes - this indicates a problem with module loading\n";
@@ -160,21 +195,26 @@ bool SVFInterruptAnalyzer::runPointerAnalysis() {
 bool SVFInterruptAnalyzer::buildVFG() {
     outs() << "🌐 Building Value Flow Graph...\n";
     
-    vfg = std::make_unique<SVF::VFG>(pta->getCallGraph());
-    
-    outs() << "✅ VFG built successfully\n";
-    outs() << "📊 VFG Statistics:\n";
-    outs() << "  VF nodes: " << vfg->getTotalNodeNum() << "\n";
-    outs() << "  VF edges: " << vfg->getTotalEdgeNum() << "\n";
-    
-    return true;
+    try {
+        vfg = std::make_unique<SVF::VFG>(pta->getCallGraph());
+        
+        outs() << "✅ VFG built successfully\n";
+        outs() << "📊 VFG Statistics:\n";
+        outs() << "  VF nodes: " << vfg->getTotalNodeNum() << "\n";
+        outs() << "  VF edges: " << vfg->getTotalEdgeNum() << "\n";
+        
+        return true;
+    } catch (const std::exception& e) {
+        outs() << "⚠️  VFG construction failed: " << e.what() << "\n";
+        return false;
+    }
 }
 
 const SVF::Function* SVFInterruptAnalyzer::findSVFFunction(const std::string& name) {
     if (!svfir) return nullptr;
     
-    // 简化实现：直接返回nullptr，因为SVF的函数查找API复杂且版本相关
-    // 在实际使用中，我们会依赖LLVM的函数查找
+    // 简化实现：在这个版本的SVF中，我们可能不需要直接获取SVF::Function
+    // 因为我们主要通过LLVM Function和SVF的NodeID来工作
     return nullptr;
 }
 #endif
@@ -309,7 +349,7 @@ InterruptHandlerResult SVFInterruptAnalyzer::analyzeSingleHandler(Function* hand
 }
 
 //===----------------------------------------------------------------------===//
-// SVF分析方法
+// SVF分析方法 - 使用正确的LLVMModuleSet API
 //===----------------------------------------------------------------------===//
 
 #ifdef SVF_AVAILABLE
@@ -318,23 +358,37 @@ std::vector<std::string> SVFInterruptAnalyzer::analyzeIndirectCalls(Function* ha
     
     if (!pta || !svfir) return targets;
     
-    const SVF::SVFFunction* svf_func = findSVFFunction(handler->getName().str());
-    if (!svf_func) return targets;
+    // 获取LLVMModuleSet实例来访问hasValueNode和getValueNode
+    SVF::LLVMModuleSet* moduleSet = SVF::LLVMModuleSet::getLLVMModuleSet();
     
-    // 分析函数中的间接调用
+    // 使用正确的SVF API
     for (auto& BB : *handler) {
         for (auto& I : BB) {
             if (auto* CI = dyn_cast<CallInst>(&I)) {
-                if (!CI->getCalledFunction() && svfir->hasValueNode(CI)) {
-                    // 获取调用指令的SVF节点
-                    SVF::NodeID callNodeId = svfir->getValueNode(CI->getCalledOperand());
-                    const SVF::PointsTo& pts = pta->getPts(callNodeId);
+                if (!CI->getCalledFunction()) {
+                    // 这是间接调用，使用SVF分析
+                    Value* calledValue = CI->getCalledOperand();
                     
-                    // 获取可能的调用目标
-                    for (auto ptd : pts) {
-                        const SVF::PAGNode* targetNode = svfir->getGNode(ptd);
-                        if (const SVF::FunValVar* funVar = SVF::SVFUtil::dyn_cast<SVF::FunValVar>(targetNode)) {
-                            targets.push_back(funVar->getFunction()->getName());
+                    // 使用LLVMModuleSet检查是否有对应的节点
+                    if (moduleSet->hasValueNode(calledValue)) {
+                        SVF::NodeID callNodeId = moduleSet->getValueNode(calledValue);
+                        const SVF::PointsTo& pts = pta->getPts(callNodeId);
+                        
+                        // 获取可能的调用目标
+                        for (auto ptd : pts) {
+                            const SVF::PAGNode* targetNode = svfir->getGNode(ptd);
+                            if (const SVF::FunValVar* funVar = SVF::SVFUtil::dyn_cast<SVF::FunValVar>(targetNode)) {
+                                targets.push_back(funVar->getFunction()->getName());
+                            }
+                        }
+                    } else {
+                        // 如果SVF中没有对应节点，使用基础启发式分析
+                        if (auto* arg = dyn_cast<Argument>(calledValue)) {
+                            targets.push_back("function_pointer_arg_" + std::to_string(arg->getArgNo()));
+                        } else if (auto* gv = dyn_cast<GlobalVariable>(calledValue)) {
+                            targets.push_back("global_func_ptr_" + gv->getName().str());
+                        } else {
+                            targets.push_back("unknown_indirect_call");
                         }
                     }
                 }
@@ -350,21 +404,29 @@ std::map<std::string, std::vector<std::string>> SVFInterruptAnalyzer::analyzePoi
     
     if (!pta || !svfir) return pointer_info;
     
+    // 获取LLVMModuleSet实例
+    SVF::LLVMModuleSet* moduleSet = SVF::LLVMModuleSet::getLLVMModuleSet();
+    
     // 分析函数中的指针
     for (auto& BB : *handler) {
         for (auto& I : BB) {
-            if (I.getType()->isPointerTy() && svfir->hasValueNode(&I)) {
-                SVF::NodeID nodeId = svfir->getValueNode(&I);
-                const SVF::PointsTo& pts = pta->getPts(nodeId);
-                
-                std::vector<std::string> pointed_objects;
-                for (auto ptd : pts) {
-                    pointed_objects.push_back("obj_" + std::to_string(ptd));
-                }
-                
-                if (!pointed_objects.empty()) {
-                    std::string ptr_name = getInstructionInfo(&I);
-                    pointer_info[ptr_name] = pointed_objects;
+            if (I.getType()->isPointerTy()) {
+                // 使用LLVMModuleSet检查是否有对应的节点
+                if (moduleSet->hasValueNode(&I)) {
+                    SVF::NodeID nodeId = moduleSet->getValueNode(&I);
+                    const SVF::PointsTo& pts = pta->getPts(nodeId);
+                    
+                    std::vector<std::string> pointed_objects;
+                    for (auto ptd : pts) {
+                        const SVF::PAGNode* objNode = svfir->getGNode(ptd);
+                        // 简化处理，不使用可能不存在的hasValue/getValue方法
+                        pointed_objects.push_back("obj_" + std::to_string(ptd));
+                    }
+                    
+                    if (!pointed_objects.empty()) {
+                        std::string ptr_name = getInstructionInfo(&I);
+                        pointer_info[ptr_name] = pointed_objects;
+                    }
                 }
             }
         }
@@ -597,7 +659,10 @@ void SVFInterruptAnalyzer::printStatistics() const {
         outs() << "  Total nodes: " << svfir->getTotalNodeNum() << "\n";
         outs() << "  Total edges: " << svfir->getTotalEdgeNum() << "\n";
         outs() << "  Value nodes: " << svfir->getValueNodeNum() << "\n";
-        outs() << "  Object nodes: " << svfir->getObjNodeNum() << "\n";
+        
+        // 使用正确的API获取对象节点数量
+        SVF::LLVMModuleSet* moduleSet = SVF::LLVMModuleSet::getLLVMModuleSet();
+        outs() << "  Object nodes: " << moduleSet->getObjNodeNum() << "\n";
     }
     
     if (pta) {

@@ -80,7 +80,28 @@ private:
     
 public:
     SVFInterruptAnalyzer(LLVMContext* ctx) : context(ctx), svf_initialized(false) {}
-    ~SVFInterruptAnalyzer() = default;
+    ~SVFInterruptAnalyzer() {
+        // 按正确顺序清理SVF资源，避免段错误
+        #ifdef SVF_AVAILABLE
+        // 1. 首先清理VFG（依赖于其他组件）
+        if (vfg) {
+            vfg.reset();
+        }
+        
+        // 2. 然后清理指针分析（依赖于SVFIR）
+        if (pta) {
+            pta.reset();
+        }
+        
+        // 3. 最后清理SVFIR
+        if (svfir) {
+            svfir.reset();
+        }
+        
+        // 4. 清理模块（让LLVM自己处理）
+        modules.clear();
+        #endif
+    }
     
     /// 加载bitcode文件
     bool loadBitcodeFiles(const std::vector<std::string>& files);
