@@ -4,8 +4,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef IRQ_ANALYSIS_COMPILE_COMMANDS_PARSER_H
-#define IRQ_ANALYSIS_COMPILE_COMMANDS_PARSER_H
+#ifndef COMPILE_COMMANDS_PARSER_H
+#define COMPILE_COMMANDS_PARSER_H
 
 #include <string>
 #include <vector>
@@ -37,6 +37,14 @@ public:
     
     /// 获取命令数量
     size_t getCommandCount() const { return commands.size(); }
+    
+    /// 清空命令列表
+    void clear() { commands.clear(); }
+    
+    /// 获取指定索引的命令
+    const CompileCommand* getCommand(size_t index) const {
+        return (index < commands.size()) ? &commands[index] : nullptr;
+    }
 };
 
-#endif // IRQ_ANALYSIS_COMPILE_COMMANDS_PARSER_H
+#endif // COMPILE_COMMANDS_PARSER_H
