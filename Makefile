@@ -1,4 +1,4 @@
-# SVF Interrupt Handler Analyzer - Updated Makefile with thread safety fixes
+# Enhanced SVF Interrupt Handler Analyzer - Makefile
 
 # LLVM Configuration
 LLVM_CONFIG = llvm-config
@@ -10,30 +10,33 @@ LLVM_LIBS = $(shell $(LLVM_CONFIG) --libs core support analysis irreader bitread
 SVF_ROOT ?= /opt/svf-llvm14
 SVF_AVAILABLE := $(shell test -f $(SVF_ROOT)/include/SVF-LLVM/LLVMUtil.h && echo 1 || echo 0)
 
-# Compiler and flags - 添加线程支持和调试信息
+# Compiler and flags - Enhanced with additional optimization
 CXX = clang++
 CXXFLAGS = -std=c++17 -Wall -Wno-unused-parameter $(LLVM_CXXFLAGS) -pthread -g
+CXXFLAGS += -O2 -DENHANCED_ANALYSIS
 LDFLAGS = $(LLVM_LDFLAGS) $(LLVM_LIBS) -lpthread -ldl -lm
 
 # Target
-TARGET = svf_irq_analyzer
+TARGET = enhanced_svf_irq_analyzer
 
-# SVF Integration with updated include paths and thread safety
+# SVF Integration with enhanced features
 ifeq ($(SVF_AVAILABLE),1)
     CXXFLAGS += -DSVF_AVAILABLE -I$(SVF_ROOT)/include
     CXXFLAGS += -fexceptions -frtti
-    # 添加线程安全相关的编译选项
-    CXXFLAGS += -DSVF_THREAD_SAFE -fno-omit-frame-pointer
-    # Updated library linking order - core libraries first
+    CXXFLAGS += -DENHANCED_SVF_FEATURES
     LDFLAGS += -L$(SVF_ROOT)/lib -lSvfLLVM -lSvfCore
-    SVF_STATUS = Available
+    SVF_STATUS = Available_Enhanced
 else
     SVF_STATUS = Not_Available
 endif
 
-# Source files - 只保留必要的文件
+# Source files - 精简版本
 SOURCES = main.cpp \
           SVFInterruptAnalyzer.cpp \
+          MemoryAnalyzer.cpp \
+          DataStructureAnalyzer.cpp \
+          FunctionPointerAnalyzer.cpp \
+          AnalysisOutputManager.cpp \
           CompileCommandsParser.cpp \
           IRQHandlerIdentifier.cpp
 
@@ -44,14 +47,14 @@ all: info check-svf $(TARGET)
 
 # Build info
 info:
-	@echo "SVF Interrupt Handler Analyzer (Thread-Safe Version)"
-	@echo "=================================================="
+	@echo "Enhanced SVF Interrupt Handler Analyzer"
+	@echo "======================================="
 	@echo "Target: $(TARGET)"
 	@echo "LLVM: $(shell $(LLVM_CONFIG) --version)"
 	@echo "SVF Status: $(SVF_STATUS)"
 	@echo "SVF Root: $(SVF_ROOT)"
 	@echo "Source files: $(words $(SOURCES))"
-	@echo "Thread Safety: Enabled"
+	@echo "Enhanced Features: Data structures, Function pointers, Read/Write separation"
 	@echo ""
 
 # Enhanced SVF availability check
@@ -63,26 +66,25 @@ ifeq ($(SVF_AVAILABLE),0)
 	@exit 1
 else
 	@echo "✅ SVF found at $(SVF_ROOT)"
-	@echo "Checking libraries and headers..."
+	@echo "Checking enhanced libraries and headers..."
 	@test -f $(SVF_ROOT)/lib/libSvfCore.a || (echo "❌ libSvfCore.a not found" && exit 1)
 	@test -f $(SVF_ROOT)/lib/libSvfLLVM.a || (echo "❌ libSvfLLVM.a not found" && exit 1)
 	@test -f $(SVF_ROOT)/include/SVFIR/SVFIR.h || (echo "❌ SVFIR.h not found" && exit 1)
 	@test -f $(SVF_ROOT)/include/SVF-LLVM/LLVMModule.h || (echo "❌ LLVMModule.h not found" && exit 1)
 	@echo "✅ Required libraries and headers found"
-	@echo "✅ Thread safety features enabled"
+	@echo "✅ Enhanced analysis features enabled"
 endif
 
-# Build target with enhanced error handling
+# Build target with enhanced features
 $(TARGET): $(OBJECTS)
-	@echo "🔗 Linking $(TARGET) with thread safety..."
-	@echo "Using LDFLAGS: $(LDFLAGS)"
+	@echo "🔗 Linking $(TARGET) with enhanced features..."
+	@echo "Enhanced features: Data structures, Function pointers, Memory operation analysis"
 	$(CXX) $(OBJECTS) -o $(TARGET) $(LDFLAGS)
-	@echo "✅ Build completed: $(TARGET) (Thread-Safe)"
+	@echo "✅ Enhanced build completed: $(TARGET)"
 
-# Compile rules with better error reporting
+# Compile rules with enhanced analysis
 %.o: %.cpp
-	@echo "🔨 Compiling $<..."
-	@echo "Using CXXFLAGS: $(CXXFLAGS)"
+	@echo "🔨 Compiling $< (enhanced version)..."
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 # Clean
@@ -109,71 +111,87 @@ setup-svf:
 	@ln -sf /home/qpz/lab/SVF/Release-build/lib/extapi.bc ./extapi.bc
 	@echo "✅ SVF setup completed"
 
-# Test with sample data (serial mode only)
+# Enhanced test with sample data
 test: $(TARGET) setup-svf
-	@echo "🧪 Running test..."
+	@echo "🧪 Running enhanced analysis test..."
 	@if [ -f "compile_commands.json" ] && [ -f "handler.json" ]; then \
 		./$(TARGET) --compile-commands=compile_commands.json \
 		            --handlers=handler.json \
-		            --output=test_results.json \
-		            --verbose; \
-		echo "✅ Test completed. Results in test_results.json"; \
+		            --output=enhanced_results.json \
+		            --verbose --detailed; \
+		echo "✅ Enhanced test completed. Results in enhanced_results.json"; \
 	else \
 		echo "❌ Test requires compile_commands.json and handler.json"; \
-		echo "Please provide these files to run the test"; \
+		echo "Please provide these files to run the enhanced test"; \
 	fi
+
+# Quick test with basic output
+test-quick: $(TARGET) setup-svf
+	@echo "🧪 Running quick enhanced test..."
+	@if [ -f "compile_commands.json" ] && [ -f "handler.json" ]; then \
+		./$(TARGET) --compile-commands=compile_commands.json \
+		            --handlers=handler.json \
+		            --output=quick_results.json; \
+		echo "✅ Quick test completed. Results in quick_results.json"; \
+	else \
+		echo "❌ Test requires compile_commands.json and handler.json"; \
+	fi
+
+# Debug build with enhanced features
+debug: CXXFLAGS += -g -O0 -DDEBUG -DENHANCED_DEBUG
+debug: clean $(TARGET)
+	@echo "🐛 Enhanced debug build completed"
 
 # Debug build with AddressSanitizer
 debug-asan: CXXFLAGS += -g -O0 -DDEBUG -fsanitize=address -fno-omit-frame-pointer
 debug-asan: LDFLAGS += -fsanitize=address
 debug-asan: clean $(TARGET)
-	@echo "🐛 Debug build with AddressSanitizer completed"
+	@echo "🐛 Enhanced debug build with AddressSanitizer completed"
 
-# Thread-safe debug build
-debug-threads: CXXFLAGS += -g -O0 -DDEBUG -fsanitize=thread
-debug-threads: LDFLAGS += -fsanitize=thread
-debug-threads: clean $(TARGET)
-	@echo "🧵 Thread-safe debug build completed"
-
-# Release build
-release: CXXFLAGS += -O3 -DNDEBUG
+# Release build with enhanced optimizations
+release: CXXFLAGS += -O3 -DNDEBUG -DENHANCED_RELEASE
 release: clean $(TARGET)
-	@echo "🚀 Release build completed"
+	@echo "🚀 Enhanced release build completed"
 
 # Enhanced dependency check
 check-deps:
-	@echo "🔍 Checking dependencies..."
+	@echo "🔍 Checking enhanced dependencies..."
 	@which $(LLVM_CONFIG) > /dev/null || (echo "❌ llvm-config not found" && exit 1)
 	@which $(CXX) > /dev/null || (echo "❌ clang++ not found" && exit 1)
 	@echo "LLVM Version: $(shell $(LLVM_CONFIG) --version)"
-	@echo "LLVM CXX Flags: $(shell $(LLVM_CONFIG) --cxxflags | cut -c1-80)..."
-	@echo "LLVM LD Flags: $(shell $(LLVM_CONFIG) --ldflags | cut -c1-80)..."
-	@echo "LLVM Libraries: $(shell $(LLVM_CONFIG) --libs | cut -c1-80)..."
 	@echo "Compiler: $(shell $(CXX) --version | head -1)"
 	@echo "SVF Status: $(SVF_STATUS)"
 ifeq ($(SVF_AVAILABLE),1)
+	@echo "Enhanced SVF Features: Enabled"
 	@echo "SVF Include: $(SVF_ROOT)/include"
 	@echo "SVF Lib: $(SVF_ROOT)/lib"
-	@echo "✅ All dependencies OK"
+	@echo "✅ All enhanced dependencies OK"
 else
-	@echo "⚠️  SVF not available"
+	@echo "⚠️  Enhanced SVF features not available"
 endif
 
-# Show usage
+# Show enhanced usage
 help:
-	@echo "SVF Interrupt Handler Analyzer (Thread-Safe)"
-	@echo "============================================"
+	@echo "Enhanced SVF Interrupt Handler Analyzer"
+	@echo "======================================="
+	@echo ""
+	@echo "Enhanced Features:"
+	@echo "  • Read/Write operation separation"
+	@echo "  • Data structure field tracking"
+	@echo "  • Function pointer resolution"
+	@echo "  • Global/static variable modification detection"
+	@echo "  • Detailed function call analysis"
 	@echo ""
 	@echo "Build Commands:"
-	@echo "  make all          - Build the analyzer"
+	@echo "  make all          - Build the enhanced analyzer"
 	@echo "  make clean        - Clean build files"
+	@echo "  make debug        - Build enhanced debug version"
 	@echo "  make debug-asan   - Build debug version with AddressSanitizer"
-	@echo "  make debug-threads - Build debug version with ThreadSanitizer"
-	@echo "  make release      - Build optimized version"
-	@echo "  make test-serial  - Run serial test (requires sample files)"
-	@echo "  make test-parallel - Run parallel test (requires sample files)"
+	@echo "  make release      - Build optimized enhanced version"
+	@echo "  make test         - Run enhanced test with detailed output"
+	@echo "  make test-quick   - Run quick enhanced test"
 	@echo "  make install      - Install to /usr/local/bin"
-	@echo "  make check-deps   - Check dependencies"
+	@echo "  make check-deps   - Check enhanced dependencies"
 	@echo ""
 	@echo "Usage:"
 	@echo "  ./$(TARGET) --compile-commands=<file> --handlers=<file> [options]"
@@ -183,70 +201,80 @@ help:
 	@echo "  --handlers=<file>           handler.json file"
 	@echo ""
 	@echo "Optional:"
-	@echo "  --output=<file>             Output JSON file"
+	@echo "  --output=<file>             Output JSON file (default: enhanced_interrupt_analysis.json)"
 	@echo "  --verbose                   Verbose output"
+	@echo "  --detailed                  Detailed analysis output"
 	@echo "  --help                      Show help"
 	@echo ""
-	@echo "Analysis Modes:"
-	@echo "  Serial mode:   Full SVF analysis in single thread"
-	@echo "  Parallel mode: Full SVF analysis with serialized execution"
+	@echo "Enhanced Analysis Output:"
+	@echo "  • Separated read/write operations"
+	@echo "  • Data structure access patterns"
+	@echo "  • Function pointer target resolution"
+	@echo "  • Global variable modification tracking"
+	@echo "  • Detailed function call information"
 	@echo ""
 	@echo "Examples:"
 	@echo "  ./$(TARGET) --compile-commands=cc.json --handlers=h.json"
-	@echo "  ./$(TARGET) --compile-commands=cc.json --handlers=h.json --verbose"
-	@echo "  ./$(TARGET) --compile-commands=cc.json --handlers=h.json --parallel --threads=8"
+	@echo "  ./$(TARGET) --compile-commands=cc.json --handlers=h.json --verbose --detailed"
+	@echo "  ./$(TARGET) --compile-commands=cc.json --handlers=h.json --output=analysis.json"
 	@echo ""
 	@echo "Environment Variables:"
 	@echo "  SVF_ROOT=<path>    Set SVF installation path (default: /opt/svf-llvm14)"
 
-# Verbose build for debugging compilation issues
-verbose: CXXFLAGS += -v
-verbose: LDFLAGS += -v
-verbose: clean 
-	@echo "🔧 Verbose build mode"
-	@$(MAKE) $(TARGET)
+# Performance test
+perf-test: $(TARGET) setup-svf
+	@echo "📊 Running enhanced performance test..."
+	@if [ -f "compile_commands.json" ] && [ -f "handler.json" ]; then \
+		time ./$(TARGET) --compile-commands=compile_commands.json \
+		                 --handlers=handler.json \
+		                 --output=perf_results.json \
+		                 --verbose; \
+		echo "📊 Performance test completed"; \
+		echo "Results saved to perf_results.json"; \
+	else \
+		echo "❌ Performance test requires compile_commands.json and handler.json"; \
+	fi
 
-# Check specific SVF components
-check-svf-detailed:
-	@echo "🔍 Detailed SVF check..."
-	@echo "SVF_ROOT: $(SVF_ROOT)"
-	@echo "Checking include directories:"
-	@ls -la $(SVF_ROOT)/include/ 2>/dev/null || echo "Include directory not found"
-	@echo "Checking lib directories:"
-	@ls -la $(SVF_ROOT)/lib/ 2>/dev/null || echo "Lib directory not found"
-	@echo "Checking specific headers:"
-	@test -f $(SVF_ROOT)/include/SVFIR/SVFIR.h && echo "✅ SVFIR.h found" || echo "❌ SVFIR.h missing"
-	@test -f $(SVF_ROOT)/include/SVF-LLVM/LLVMModule.h && echo "✅ LLVMModule.h found" || echo "❌ LLVMModule.h missing"
-	@test -f $(SVF_ROOT)/include/SVF-LLVM/SVFIRBuilder.h && echo "✅ SVFIRBuilder.h found" || echo "❌ SVFIRBuilder.h missing"
-	@test -f $(SVF_ROOT)/include/WPA/Andersen.h && echo "✅ Andersen.h found" || echo "❌ Andersen.h missing"
-	@test -f $(SVF_ROOT)/include/Graphs/VFG.h && echo "✅ VFG.h found" || echo "❌ VFG.h missing"
+# Memory usage test
+memory-test: debug-asan setup-svf
+	@echo "🧠 Running enhanced memory usage test..."
+	@if [ -f "compile_commands.json" ] && [ -f "handler.json" ]; then \
+		valgrind --tool=memcheck --leak-check=full \
+		         ./$(TARGET) --compile-commands=compile_commands.json \
+		                     --handlers=handler.json \
+		                     --output=memory_test_results.json; \
+		echo "🧠 Memory test completed"; \
+	else \
+		echo "❌ Memory test requires compile_commands.json and handler.json"; \
+	fi
 
 # Format code (requires clang-format)
 format:
-	@echo "🎨 Formatting code..."
+	@echo "🎨 Formatting enhanced code..."
 	@find . -name "*.cpp" -o -name "*.h" | xargs clang-format -i -style=LLVM
-	@echo "✅ Code formatted"
+	@echo "✅ Enhanced code formatted"
 
 # Analyze code (requires clang-tidy)
 analyze:
-	@echo "🔍 Analyzing code..."
+	@echo "🔍 Analyzing enhanced code..."
 	@clang-tidy $(SOURCES) -- $(CXXFLAGS)
-	@echo "✅ Code analysis completed"
+	@echo "✅ Enhanced code analysis completed"
 
-# Count lines of code
+# Count lines of code for enhanced version
 loc:
-	@echo "📊 Lines of code:"
+	@echo "📊 Enhanced analyzer lines of code:"
 	@wc -l $(SOURCES) *.h | tail -1
 
-# Show compilation database
+# Show enhanced compilation database
 show-compile-db:
-	@echo "📋 Compilation settings:"
+	@echo "📋 Enhanced compilation settings:"
 	@echo "CXX: $(CXX)"
 	@echo "CXXFLAGS: $(CXXFLAGS)"
 	@echo "LDFLAGS: $(LDFLAGS)"
 	@echo "Sources: $(SOURCES)"
 	@echo "Objects: $(OBJECTS)"
+	@echo "Enhanced Features: ENHANCED_ANALYSIS, ENHANCED_SVF_FEATURES"
 
-.PHONY: all info check-svf clean install uninstall test-serial test-parallel debug-asan debug-threads release check-deps help format analyze loc verbose check-svf-detailed show-compile-db
+.PHONY: all info check-svf clean install uninstall test test-quick debug debug-asan release check-deps help format analyze loc show-compile-db perf-test memory-test
 
 .DEFAULT_GOAL := all
