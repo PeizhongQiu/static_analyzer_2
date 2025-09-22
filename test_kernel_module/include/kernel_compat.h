@@ -1,22 +1,10 @@
 #ifndef KERNEL_COMPAT_H
 #define KERNEL_COMPAT_H
 
-// 基础类型定义 - 避免依赖完整内核头文件
-typedef unsigned char uint8_t;
-typedef unsigned short uint16_t;
-typedef unsigned int uint32_t;
-typedef unsigned long long uint64_t;
+#include <stdint.h>  // Use standard integer types
+#include <stddef.h>  // For size_t and NULL
 
-typedef uint8_t u8;
-typedef uint16_t u16;
-typedef uint32_t u32;
-typedef uint64_t u64;
-
-typedef signed char int8_t;
-typedef signed short int16_t;
-typedef signed int int32_t;
-typedef signed long long int64_t;
-
+// Only define types that aren't in standard headers
 typedef unsigned long size_t;
 typedef long ssize_t;
 
@@ -56,14 +44,15 @@ struct workqueue_struct {
 
 // 内存屏障宏 (空实现)
 #define __iomem
-#define volatile
+#ifndef volatile
+#define volatile volatile
+#endif
 
 // 错误码
 #define ENOMEM    12
 #define EINVAL    22
 
 // 常用宏
-#define NULL      ((void *)0)
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
 // 简化的内核函数声明

@@ -1,0 +1,416 @@
+{
+  "analysis_timestamp": 1758554234,
+  "analyzer_version": "Enhanced-SVF-2.0",
+  "enhanced_statistics": {
+    "average_confidence": 55,
+    "handlers_with_data_structure_access": 1,
+    "handlers_with_function_pointers": 2,
+    "handlers_with_global_writes": 1,
+    "successful_analyses": 4,
+    "total_memory_reads": 50,
+    "total_memory_writes": 25,
+    "total_modules_loaded": 7
+  },
+  "interrupt_handlers": [
+    {
+      "analysis_complete": true,
+      "confidence_score": 100,
+      "data_structure_accesses": [
+        {
+          "access_pattern": "array_element_access (in handle_rx_interrupt)",
+          "field_name": "element",
+          "field_type": "i32",
+          "is_pointer_field": false,
+          "offset": 0,
+          "struct_name": "array_[4 x i32]"
+        },
+        {
+          "access_pattern": "struct_field_access_pointer_read_only (in handle_rx_interrupt), handle_tx_interrupt, handle_error_interrupt",
+          "field_name": "field_0",
+          "field_type": "pointer",
+          "is_pointer_field": true,
+          "offset": 0,
+          "struct_name": "buffer_info.15"
+        },
+        {
+          "access_pattern": "struct_field_access_read_only (in handle_rx_interrupt)",
+          "field_name": "field_1",
+          "field_type": "i64",
+          "is_pointer_field": false,
+          "offset": 8,
+          "struct_name": "buffer_info.15"
+        },
+        {
+          "access_pattern": "struct_field_access_read_write (in handle_rx_interrupt), handle_tx_interrupt, handle_error_interrupt",
+          "field_name": "field_2",
+          "field_type": "i64",
+          "is_pointer_field": false,
+          "offset": 16,
+          "struct_name": "buffer_info.15"
+        },
+        {
+          "access_pattern": "struct_field_access_pointer_read_only (in handle_rx_interrupt), handle_tx_interrupt",
+          "field_name": "field_3",
+          "field_type": "pointer",
+          "is_pointer_field": true,
+          "offset": 24,
+          "struct_name": "buffer_info.15"
+        },
+        {
+          "access_pattern": "struct_field_access_read_write (in handle_error_interrupt)",
+          "field_name": "field_0",
+          "field_type": "i32",
+          "is_pointer_field": false,
+          "offset": 0,
+          "struct_name": "device_regs.13"
+        },
+        {
+          "access_pattern": "struct_field_access_read_only (in handle_rx_interrupt), handle_tx_interrupt, handle_error_interrupt",
+          "field_name": "field_1",
+          "field_type": "i32",
+          "is_pointer_field": false,
+          "offset": 8,
+          "struct_name": "device_regs.13"
+        },
+        {
+          "access_pattern": "struct_field_access_read_only (in handle_rx_interrupt), handle_tx_interrupt, handle_error_interrupt",
+          "field_name": "field_2",
+          "field_type": "i32",
+          "is_pointer_field": false,
+          "offset": 16,
+          "struct_name": "device_regs.13"
+        },
+        {
+          "access_pattern": "struct_field_access_write_only (in handle_error_interrupt)",
+          "field_name": "field_3",
+          "field_type": "i32",
+          "is_pointer_field": false,
+          "offset": 24,
+          "struct_name": "device_regs.13"
+        },
+        {
+          "access_pattern": "struct_field_access_write_only (in handle_error_interrupt)",
+          "field_name": "field_4",
+          "field_type": "i32",
+          "is_pointer_field": false,
+          "offset": 32,
+          "struct_name": "device_regs.13"
+        },
+        {
+          "access_pattern": "struct_field_access_pointer_read_only (in handle_rx_interrupt), handle_tx_interrupt, handle_error_interrupt",
+          "field_name": "field_0",
+          "field_type": "pointer",
+          "is_pointer_field": true,
+          "offset": 0,
+          "struct_name": "test_device.19"
+        },
+        {
+          "access_pattern": "nested_struct_access_struct_read_write (in handle_rx_interrupt), handle_error_interrupt",
+          "field_name": "field_1",
+          "field_type": "struct.irq_stats.14",
+          "is_pointer_field": false,
+          "offset": 8,
+          "struct_name": "test_device.19"
+        },
+        {
+          "access_pattern": "struct_field_access_pointer_read_only (in handle_rx_interrupt), handle_error_interrupt",
+          "field_name": "field_2",
+          "field_type": "pointer",
+          "is_pointer_field": true,
+          "offset": 16,
+          "struct_name": "test_device.19"
+        },
+        {
+          "access_pattern": "struct_field_access_pointer_read_only (in handle_tx_interrupt), handle_error_interrupt",
+          "field_name": "field_3",
+          "field_type": "pointer",
+          "is_pointer_field": true,
+          "offset": 24,
+          "struct_name": "test_device.19"
+        },
+        {
+          "access_pattern": "struct_field_access_write_only (in handle_error_interrupt)",
+          "field_name": "field_6",
+          "field_type": "i32",
+          "is_pointer_field": false,
+          "offset": 48,
+          "struct_name": "test_device.19"
+        }
+      ],
+      "direct_function_calls": [
+        "handle_rx_interrupt",
+        "handle_tx_interrupt",
+        "handle_error_interrupt",
+        "complex_device_operations",
+        "free_buffer"
+      ],
+      "function_call_details": [],
+      "function_calls": 5,
+      "function_name": "test_irq_handler",
+      "function_pointer_targets": {
+        "src/interrupt_handlers.c:106": [
+          "loaded_function_pointer"
+        ],
+        "src/interrupt_handlers.c:57": [
+          "loaded_function_pointer"
+        ]
+      },
+      "has_device_access": true,
+      "has_irq_operations": true,
+      "has_work_queue_ops": false,
+      "indirect_call_targets": [
+        "loaded_function_pointer",
+        "loaded_function_pointer"
+      ],
+      "indirect_calls": 2,
+      "memory_read_operations": 50,
+      "memory_write_operations": 25,
+      "memory_writes": [
+        {
+          "data_type": "i64",
+          "is_critical": true,
+          "target_name": "unnamed_struct.buffer_info.15::field_2",
+          "target_type": "struct_field",
+          "write_count": 6,
+          "write_locations": [
+            "src/interrupt_handlers.c:93 (in handle_rx_interrupt)",
+            "src/interrupt_handlers.c:115 (in handle_rx_interrupt)",
+            "src/interrupt_handlers.c:116 (in handle_rx_interrupt)",
+            "src/interrupt_handlers.c:156 (in handle_tx_interrupt)",
+            "src/interrupt_handlers.c:166 (in handle_tx_interrupt)",
+            "src/interrupt_handlers.c:195 (in handle_error_interrupt)"
+          ]
+        },
+        {
+          "data_type": "i64",
+          "is_critical": true,
+          "target_name": "dev.test_device.19::field_1",
+          "target_type": "struct_field",
+          "write_count": 4,
+          "write_locations": [
+            "src/interrupt_handlers.c:96 (in handle_rx_interrupt)",
+            "src/interrupt_handlers.c:182 (in handle_error_interrupt)",
+            "src/interrupt_handlers.c:183 (in handle_error_interrupt)",
+            "src/interrupt_handlers.c:184 (in handle_error_interrupt)"
+          ]
+        },
+        {
+          "data_type": "i32",
+          "is_critical": true,
+          "target_name": "dev.test_device.19::field_6",
+          "target_type": "struct_field",
+          "write_count": 2,
+          "write_locations": [
+            "src/interrupt_handlers.c:201 (in handle_error_interrupt)",
+            "src/interrupt_handlers.c:225 (in handle_error_interrupt)"
+          ]
+        },
+        {
+          "data_type": "i32",
+          "is_critical": true,
+          "target_name": "unnamed_struct.device_regs.13::field_0",
+          "target_type": "struct_field",
+          "write_count": 2,
+          "write_locations": [
+            "src/interrupt_handlers.c:203 (in handle_error_interrupt)",
+            "src/interrupt_handlers.c:222 (in handle_error_interrupt)"
+          ]
+        },
+        {
+          "data_type": "i32",
+          "is_critical": true,
+          "target_name": "unnamed_struct.device_regs.13::field_2",
+          "target_type": "struct_field",
+          "write_count": 2,
+          "write_locations": [
+            "src/interrupt_handlers.c:145 (in handle_tx_interrupt)",
+            "src/interrupt_handlers.c:216 (in handle_error_interrupt)"
+          ]
+        },
+        {
+          "data_type": "i64",
+          "is_critical": true,
+          "target_name": "global_error_count",
+          "target_type": "global_var",
+          "write_count": 1,
+          "write_locations": [
+            "src/interrupt_handlers.c:185 (in handle_error_interrupt)"
+          ]
+        },
+        {
+          "data_type": "i32",
+          "is_critical": true,
+          "target_name": "handle_error_interrupt.error_index",
+          "target_type": "static_var",
+          "write_count": 1,
+          "write_locations": [
+            "src/interrupt_handlers.c:189 (in handle_error_interrupt)"
+          ]
+        },
+        {
+          "data_type": "i32",
+          "is_critical": true,
+          "target_name": "handle_rx_interrupt.rx_sequence",
+          "target_type": "static_var",
+          "write_count": 1,
+          "write_locations": [
+            "src/interrupt_handlers.c:79 (in handle_rx_interrupt)"
+          ]
+        },
+        {
+          "data_type": "i32",
+          "is_critical": true,
+          "target_name": "handle_tx_interrupt.tx_sequence",
+          "target_type": "static_var",
+          "write_count": 1,
+          "write_locations": [
+            "src/interrupt_handlers.c:134 (in handle_tx_interrupt)"
+          ]
+        },
+        {
+          "data_type": "pointer",
+          "is_critical": true,
+          "target_name": "unnamed_struct.buffer_info.15::field_3",
+          "target_type": "struct_field",
+          "write_count": 1,
+          "write_locations": [
+            "src/interrupt_handlers.c:163 (in handle_tx_interrupt)"
+          ]
+        },
+        {
+          "data_type": "i32",
+          "is_critical": true,
+          "target_name": "unnamed_struct.device_regs.13::field_1",
+          "target_type": "struct_field",
+          "write_count": 1,
+          "write_locations": [
+            "src/interrupt_handlers.c:223 (in handle_error_interrupt)"
+          ]
+        },
+        {
+          "data_type": "i32",
+          "is_critical": true,
+          "target_name": "unnamed_struct.device_regs.13::field_3",
+          "target_type": "struct_field",
+          "write_count": 1,
+          "write_locations": [
+            "src/interrupt_handlers.c:224 (in handle_error_interrupt)"
+          ]
+        },
+        {
+          "data_type": "i32",
+          "is_critical": true,
+          "target_name": "unnamed_struct.device_regs.13::field_4",
+          "target_type": "struct_field",
+          "write_count": 1,
+          "write_locations": [
+            "src/interrupt_handlers.c:202 (in handle_error_interrupt)"
+          ]
+        },
+        {
+          "data_type": "i32",
+          "is_critical": true,
+          "target_name": "unnamed_struct.field",
+          "target_type": "struct_field",
+          "write_count": 1,
+          "write_locations": [
+            "src/interrupt_handlers.c:92 (in handle_rx_interrupt)"
+          ]
+        }
+      ],
+      "modified_global_vars": [
+        "global_error_count (written in handle_error_interrupt)"
+      ],
+      "modified_static_vars": [
+        "handle_error_interrupt.error_index (written in handle_error_interrupt)",
+        "handle_rx_interrupt.rx_sequence (written in handle_rx_interrupt)",
+        "handle_tx_interrupt.tx_sequence (written in handle_tx_interrupt)"
+      ],
+      "module_file": "/home/qpz/lab/static_claude/test_kernel_module/src/interrupt_handlers.bc",
+      "source_file": "src/interrupt_handlers.c",
+      "total_basic_blocks": 12,
+      "total_instructions": 91
+    },
+    {
+      "analysis_complete": true,
+      "confidence_score": 45,
+      "data_structure_accesses": [],
+      "direct_function_calls": [],
+      "function_call_details": [],
+      "function_calls": 0,
+      "function_name": "handle_rx_interrupt",
+      "function_pointer_targets": {
+        "src/interrupt_handlers.c:106": [
+          "loaded_function_pointer"
+        ]
+      },
+      "has_device_access": false,
+      "has_irq_operations": false,
+      "has_work_queue_ops": false,
+      "indirect_call_targets": [
+        "loaded_function_pointer"
+      ],
+      "indirect_calls": 1,
+      "memory_read_operations": 0,
+      "memory_write_operations": 0,
+      "memory_writes": [],
+      "modified_global_vars": [],
+      "modified_static_vars": [],
+      "module_file": "/home/qpz/lab/static_claude/test_kernel_module/src/interrupt_handlers.bc",
+      "source_file": "src/interrupt_handlers.c",
+      "total_basic_blocks": 13,
+      "total_instructions": 99
+    },
+    {
+      "analysis_complete": true,
+      "confidence_score": 40,
+      "data_structure_accesses": [],
+      "direct_function_calls": [
+        "free_buffer"
+      ],
+      "function_call_details": [],
+      "function_calls": 1,
+      "function_name": "handle_tx_interrupt",
+      "function_pointer_targets": {},
+      "has_device_access": false,
+      "has_irq_operations": false,
+      "has_work_queue_ops": false,
+      "indirect_call_targets": [],
+      "indirect_calls": 0,
+      "memory_read_operations": 0,
+      "memory_write_operations": 0,
+      "memory_writes": [],
+      "modified_global_vars": [],
+      "modified_static_vars": [],
+      "module_file": "/home/qpz/lab/static_claude/test_kernel_module/src/interrupt_handlers.bc",
+      "source_file": "src/interrupt_handlers.c",
+      "total_basic_blocks": 17,
+      "total_instructions": 93
+    },
+    {
+      "analysis_complete": true,
+      "confidence_score": 35,
+      "data_structure_accesses": [],
+      "direct_function_calls": [],
+      "function_call_details": [],
+      "function_calls": 0,
+      "function_name": "handle_error_interrupt",
+      "function_pointer_targets": {},
+      "has_device_access": false,
+      "has_irq_operations": false,
+      "has_work_queue_ops": false,
+      "indirect_call_targets": [],
+      "indirect_calls": 0,
+      "memory_read_operations": 0,
+      "memory_write_operations": 0,
+      "memory_writes": [],
+      "modified_global_vars": [],
+      "modified_static_vars": [],
+      "module_file": "/home/qpz/lab/static_claude/test_kernel_module/src/interrupt_handlers.bc",
+      "source_file": "src/interrupt_handlers.c",
+      "total_basic_blocks": 12,
+      "total_instructions": 97
+    }
+  ],
+  "total_handlers": 4
+}

@@ -1,37 +1,37 @@
 [
   {
     "directory": "/home/qpz/lab/static_claude/test_kernel_module",
-    "command": "clang -Wall -Wno-unused-variable -O1 -g -I./include -emit-llvm -c rc",
-    "file": "rc"
+    "command": "clang -c -Wall -Wno-unused-variable -O1 -g3 -gdwarf-4 -fno-eliminate-unused-debug-types -fno-discard-value-names -fstandalone-debug -I./include -std=c99 -D__KERNEL__ -emit-llvm src/kernel_impl.c -o src/kernel_impl.bc",
+    "file": "src/kernel_impl.c"
   },
   {
     "directory": "/home/qpz/lab/static_claude/test_kernel_module",
-    "command": "clang -Wall -Wno-unused-variable -O1 -g -I./include -emit-llvm -c rc",
-    "file": "rc"
+    "command": "clang -c -Wall -Wno-unused-variable -O1 -g3 -gdwarf-4 -fno-eliminate-unused-debug-types -fno-discard-value-names -fstandalone-debug -I./include -std=c99 -D__KERNEL__ -emit-llvm src/globals.c -o src/globals.bc",
+    "file": "src/globals.c"
   },
   {
     "directory": "/home/qpz/lab/static_claude/test_kernel_module",
-    "command": "clang -Wall -Wno-unused-variable -O1 -g -I./include -emit-llvm -c rc",
-    "file": "rc"
+    "command": "clang -c -Wall -Wno-unused-variable -O1 -g3 -gdwarf-4 -fno-eliminate-unused-debug-types -fno-discard-value-names -fstandalone-debug -I./include -std=c99 -D__KERNEL__ -emit-llvm src/buffer_manager.c -o src/buffer_manager.bc",
+    "file": "src/buffer_manager.c"
   },
   {
     "directory": "/home/qpz/lab/static_claude/test_kernel_module",
-    "command": "clang -Wall -Wno-unused-variable -O1 -g -I./include -emit-llvm -c rc",
-    "file": "rc"
+    "command": "clang -c -Wall -Wno-unused-variable -O1 -g3 -gdwarf-4 -fno-eliminate-unused-debug-types -fno-discard-value-names -fstandalone-debug -I./include -std=c99 -D__KERNEL__ -emit-llvm src/device_manager.c -o src/device_manager.bc",
+    "file": "src/device_manager.c"
   },
   {
     "directory": "/home/qpz/lab/static_claude/test_kernel_module",
-    "command": "clang -Wall -Wno-unused-variable -O1 -g -I./include -emit-llvm -c rc",
-    "file": "rc"
+    "command": "clang -c -Wall -Wno-unused-variable -O1 -g3 -gdwarf-4 -fno-eliminate-unused-debug-types -fno-discard-value-names -fstandalone-debug -I./include -std=c99 -D__KERNEL__ -emit-llvm src/interrupt_handlers.c -o src/interrupt_handlers.bc",
+    "file": "src/interrupt_handlers.c"
   },
   {
     "directory": "/home/qpz/lab/static_claude/test_kernel_module",
-    "command": "clang -Wall -Wno-unused-variable -O1 -g -I./include -emit-llvm -c rc",
-    "file": "rc"
+    "command": "clang -c -Wall -Wno-unused-variable -O1 -g3 -gdwarf-4 -fno-eliminate-unused-debug-types -fno-discard-value-names -fstandalone-debug -I./include -std=c99 -D__KERNEL__ -emit-llvm src/data_processor.c -o src/data_processor.bc",
+    "file": "src/data_processor.c"
   },
   {
     "directory": "/home/qpz/lab/static_claude/test_kernel_module",
-    "command": "clang -Wall -Wno-unused-variable -O1 -g -I./include -emit-llvm -c rc",
-    "file": "rc"
-  },
+    "command": "clang -c -Wall -Wno-unused-variable -O1 -g3 -gdwarf-4 -fno-eliminate-unused-debug-types -fno-discard-value-names -fstandalone-debug -I./include -std=c99 -D__KERNEL__ -emit-llvm drivers/test_irq_driver.c -o drivers/test_irq_driver.bc",
+    "file": "drivers/test_irq_driver.c"
+  }
 ]
