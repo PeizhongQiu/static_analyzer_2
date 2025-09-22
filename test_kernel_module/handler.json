@@ -1,0 +1,21 @@
+{
+  "total_unique_combinations": 4,
+  "combinations": [
+    {
+      "handler": "test_irq_handler",
+      "thread_fn": null
+    },
+    {
+      "handler": "handle_rx_interrupt",
+      "thread_fn": null
+    },
+    {
+      "handler": "handle_tx_interrupt", 
+      "thread_fn": null
+    },
+    {
+      "handler": "handle_error_interrupt",
+      "thread_fn": null
+    }
+  ]
+}

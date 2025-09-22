@@ -1,0 +1,37 @@
+[
+  {
+    "directory": "/home/qpz/lab/static_claude/test_kernel_module",
+    "command": "clang -Wall -Wno-unused-variable -O1 -g -I./include -emit-llvm -c rc",
+    "file": "rc"
+  },
+  {
+    "directory": "/home/qpz/lab/static_claude/test_kernel_module",
+    "command": "clang -Wall -Wno-unused-variable -O1 -g -I./include -emit-llvm -c rc",
+    "file": "rc"
+  },
+  {
+    "directory": "/home/qpz/lab/static_claude/test_kernel_module",
+    "command": "clang -Wall -Wno-unused-variable -O1 -g -I./include -emit-llvm -c rc",
+    "file": "rc"
+  },
+  {
+    "directory": "/home/qpz/lab/static_claude/test_kernel_module",
+    "command": "clang -Wall -Wno-unused-variable -O1 -g -I./include -emit-llvm -c rc",
+    "file": "rc"
+  },
+  {
+    "directory": "/home/qpz/lab/static_claude/test_kernel_module",
+    "command": "clang -Wall -Wno-unused-variable -O1 -g -I./include -emit-llvm -c rc",
+    "file": "rc"
+  },
+  {
+    "directory": "/home/qpz/lab/static_claude/test_kernel_module",
+    "command": "clang -Wall -Wno-unused-variable -O1 -g -I./include -emit-llvm -c rc",
+    "file": "rc"
+  },
+  {
+    "directory": "/home/qpz/lab/static_claude/test_kernel_module",
+    "command": "clang -Wall -Wno-unused-variable -O1 -g -I./include -emit-llvm -c rc",
+    "file": "rc"
+  },
+]
