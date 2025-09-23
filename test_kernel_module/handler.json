@@ -16,6 +16,10 @@
     {
       "handler": "handle_error_interrupt",
       "thread_fn": null
+    },
+    {
+      "handler": "unknown",
+      "thread_fn": null
     }
   ]
 }

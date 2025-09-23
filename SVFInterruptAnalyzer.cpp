@@ -499,20 +499,6 @@ bool SVFInterruptAnalyzer::isDeviceRelatedFunction(const std::string& name) {
     return false;
 }
 
-bool SVFInterruptAnalyzer::isWorkQueueFunction(const std::string& name) {
-    static const std::vector<std::string> keywords = {
-        "queue_work", "schedule_work", "flush_work", "cancel_work",
-        "schedule_delayed_work", "mod_delayed_work"
-    };
-    
-    for (const auto& keyword : keywords) {
-        if (name.find(keyword) != std::string::npos) {
-            return true;
-        }
-    }
-    return false;
-}
-
 bool SVFInterruptAnalyzer::isInternalFunction(const std::string& name) {
     // 跳过LLVM内部函数和调试函数
     static const std::vector<std::string> internal_prefixes = {

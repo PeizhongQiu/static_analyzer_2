@@ -337,5 +337,6 @@ int main(int argc, char** argv) {
     outs() << "🎉 Analysis completed successfully!\n";
     
     // 正常退出
+    exit(0);
     return 0;
 }

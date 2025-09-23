@@ -18,12 +18,17 @@ using namespace llvm;
 
 std::vector<std::string> SVFInterruptAnalyzer::resolveFunctionPointer(Value* func_ptr) {
     std::vector<std::string> targets;
+
+    if (!func_ptr) {
+        return targets;
+    }
     
 #ifdef SVF_AVAILABLE
     if (pta && svfir) {
         SVF::LLVMModuleSet* moduleSet = SVF::LLVMModuleSet::getLLVMModuleSet();
         
         if (moduleSet->hasValueNode(func_ptr)) {
+            outs() << "\nIndirect call find \n";
             SVF::NodeID nodeId = moduleSet->getValueNode(func_ptr);
             const SVF::PointsTo& pts = pta->getPts(nodeId);
             

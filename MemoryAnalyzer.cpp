@@ -56,17 +56,7 @@ void SVFInterruptAnalyzer::analyzeStoreInstruction(StoreInst* store, MemoryWrite
         
     } else if (auto* GEP = dyn_cast<GetElementPtrInst>(ptr)) {
         // 通过GEP写入结构体字段或数组元素
-        write_op.target_type = "struct_field";
-        write_op.is_critical = true;
-        
-        Value* base = GEP->getPointerOperand();
-        if (auto* GV = dyn_cast<GlobalVariable>(base)) {
-            write_op.target_name = GV->getName().str() + "." + analyzeGEPFieldAccess(GEP);
-        } else if (base->hasName()) {
-            write_op.target_name = base->getName().str() + "." + analyzeGEPFieldAccess(GEP);
-        } else {
-            write_op.target_name = "unnamed_struct." + analyzeGEPFieldAccess(GEP);
-        }
+        analyzeGEPWriteOperation(GEP, write_op, func_name);
         
     } else if (auto* alloca = dyn_cast<AllocaInst>(ptr)) {
         // 写入局部变量

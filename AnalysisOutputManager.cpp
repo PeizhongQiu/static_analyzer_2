@@ -26,9 +26,34 @@ double SVFInterruptAnalyzer::calculateConfidence(const InterruptHandlerResult& r
     if (result.memory_write_operations > 0) score += 15.0;
     if (result.memory_read_operations > 0) score += 10.0;
     
-    // 数据结构分析质量
+    // 数据结构分析质量 - 增强评分
     if (!result.data_structure_accesses.empty()) score += 15.0;
     if (result.data_structure_accesses.size() > 3) score += 5.0;
+    
+    // 新增：结构体信息质量评分
+    int struct_fields_with_real_names = 0;
+    int struct_fields_total = 0;
+    
+    for (const auto& write_op : result.memory_writes) {
+        if (write_op.target_type == "struct_field") {
+            struct_fields_total++;
+            // 检查是否有真实字段名（而不是field_N格式）
+            if (!write_op.field_name.empty() && 
+                write_op.field_name.find("field_") != 0) {
+                struct_fields_with_real_names++;
+            }
+            // 检查是否有完整的结构体信息
+            if (!write_op.struct_name.empty() && write_op.field_offset > 0) {
+                score += 2.0;
+            }
+        }
+    }
+    
+    // 根据真实字段名比例加分
+    if (struct_fields_total > 0) {
+        double real_name_ratio = (double)struct_fields_with_real_names / struct_fields_total;
+        score += real_name_ratio * 10.0; // 最多10分
+    }
     
     // 函数调用分析质量
     if (!result.function_call_details.empty()) score += 10.0;
@@ -45,16 +70,28 @@ double SVFInterruptAnalyzer::calculateConfidence(const InterruptHandlerResult& r
     if (result.total_instructions > 50) score += 5.0;
     if (result.total_instructions > 100) score += 5.0;
     
-    // 分析深度加分
+    // 分析深度加分 - 更新判断条件
     if (hasAdvancedAnalysisFeatures(result)) score += 5.0;
     
     return std::min(score, 100.0);
 }
 
 bool SVFInterruptAnalyzer::hasAdvancedAnalysisFeatures(const InterruptHandlerResult& result) {
+    // 更新判断条件，考虑增强的结构体信息
+    bool has_detailed_struct_info = false;
+    for (const auto& write_op : result.memory_writes) {
+        if (write_op.target_type == "struct_field" && 
+            !write_op.struct_name.empty() && 
+            write_op.field_offset > 0) {
+            has_detailed_struct_info = true;
+            break;
+        }
+    }
+    
     return !result.memory_writes.empty() &&
            !result.data_structure_accesses.empty() &&
-           !result.function_call_details.empty();
+           !result.function_call_details.empty() &&
+           has_detailed_struct_info;
 }
 
 //===----------------------------------------------------------------------===//
@@ -133,12 +170,28 @@ void SVFInterruptAnalyzer::addDataStructureInfo(json::Object& handler, const Int
     json::Array data_structures;
     for (const auto& access : result.data_structure_accesses) {
         json::Object ds_obj;
-        ds_obj["struct_name"] = access.struct_name;
+        
+        // 清理结构体名称 - 只保留主要部分
+        std::string clean_struct_name = access.struct_name;
+        
+        // 移除尾部的数字标识符 (如 .19, .15 等)
+        size_t dot_pos = clean_struct_name.find_last_of('.');
+        if (dot_pos != std::string::npos) {
+            std::string suffix = clean_struct_name.substr(dot_pos + 1);
+            bool is_numeric = !suffix.empty() && 
+                std::all_of(suffix.begin(), suffix.end(), ::isdigit);
+            if (is_numeric) {
+                clean_struct_name = clean_struct_name.substr(0, dot_pos);
+            }
+        }
+        
+        ds_obj["struct_name"] = clean_struct_name;
         ds_obj["field_name"] = access.field_name;
         ds_obj["field_type"] = access.field_type;
         ds_obj["offset"] = (int64_t)access.offset;
         ds_obj["is_pointer_field"] = access.is_pointer_field;
         ds_obj["access_pattern"] = access.access_pattern;
+        
         data_structures.push_back(std::move(ds_obj));
     }
     handler["data_structure_accesses"] = std::move(data_structures);
@@ -184,6 +237,30 @@ void SVFInterruptAnalyzer::addMemoryWriteInfo(json::Object& handler, const Inter
             locations.push_back(loc);
         }
         write_obj["write_locations"] = std::move(locations);
+        
+        // 新增：结构体相关信息
+        if (write_op.target_type == "struct_field" && !write_op.struct_name.empty()) {
+            json::Object struct_info;
+            struct_info["struct_name"] = write_op.struct_name;
+            struct_info["field_name"] = write_op.field_name;
+            struct_info["field_type"] = write_op.field_type;
+            struct_info["field_offset"] = (int64_t)write_op.field_offset;
+            struct_info["field_size"] = (int64_t)write_op.field_size;
+            struct_info["full_path"] = write_op.full_path;
+            
+            write_obj["struct_info"] = std::move(struct_info);
+        }
+        
+        // 新增：数组相关信息
+        if (write_op.target_type == "array_element") {
+            json::Object array_info;
+            array_info["field_name"] = write_op.field_name;
+            array_info["field_offset"] = (int64_t)write_op.field_offset;
+            array_info["field_size"] = (int64_t)write_op.field_size;
+            array_info["full_path"] = write_op.full_path;
+            
+            write_obj["array_info"] = std::move(array_info);
+        }
         
         memory_writes.push_back(std::move(write_obj));
     }

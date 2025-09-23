@@ -1,8 +1,8 @@
 {
-  "analysis_timestamp": 1758571708,
+  "analysis_timestamp": 1758636076,
   "analyzer_version": "Enhanced-SVF-2.0",
   "enhanced_statistics": {
-    "average_confidence": 55,
+    "average_confidence": 44,
     "handlers_with_data_structure_access": 1,
     "handlers_with_function_pointers": 2,
     "handlers_with_global_writes": 1,
@@ -30,7 +30,7 @@
           "field_type": "pointer",
           "is_pointer_field": true,
           "offset": 0,
-          "struct_name": "buffer_info.15"
+          "struct_name": "buffer_info"
         },
         {
           "access_pattern": "struct_field_access_read_only (in handle_rx_interrupt)",
@@ -38,7 +38,7 @@
           "field_type": "i64",
           "is_pointer_field": false,
           "offset": 8,
-          "struct_name": "buffer_info.15"
+          "struct_name": "buffer_info"
         },
         {
           "access_pattern": "struct_field_access_read_write (in handle_rx_interrupt), handle_tx_interrupt, handle_error_interrupt",
@@ -46,7 +46,7 @@
           "field_type": "i64",
           "is_pointer_field": false,
           "offset": 16,
-          "struct_name": "buffer_info.15"
+          "struct_name": "buffer_info"
         },
         {
           "access_pattern": "struct_field_access_pointer_read_only (in handle_rx_interrupt), handle_tx_interrupt",
@@ -54,7 +54,7 @@
           "field_type": "pointer",
           "is_pointer_field": true,
           "offset": 24,
-          "struct_name": "buffer_info.15"
+          "struct_name": "buffer_info"
         },
         {
           "access_pattern": "struct_field_access_read_write (in handle_error_interrupt)",
@@ -62,7 +62,7 @@
           "field_type": "i32",
           "is_pointer_field": false,
           "offset": 0,
-          "struct_name": "device_regs.13"
+          "struct_name": "device_regs"
         },
         {
           "access_pattern": "struct_field_access_read_only (in handle_rx_interrupt), handle_tx_interrupt, handle_error_interrupt",
@@ -70,7 +70,7 @@
           "field_type": "i32",
           "is_pointer_field": false,
           "offset": 8,
-          "struct_name": "device_regs.13"
+          "struct_name": "device_regs"
         },
         {
           "access_pattern": "struct_field_access_read_only (in handle_rx_interrupt), handle_tx_interrupt, handle_error_interrupt",
@@ -78,7 +78,7 @@
           "field_type": "i32",
           "is_pointer_field": false,
           "offset": 16,
-          "struct_name": "device_regs.13"
+          "struct_name": "device_regs"
         },
         {
           "access_pattern": "struct_field_access_write_only (in handle_error_interrupt)",
@@ -86,7 +86,7 @@
           "field_type": "i32",
           "is_pointer_field": false,
           "offset": 24,
-          "struct_name": "device_regs.13"
+          "struct_name": "device_regs"
         },
         {
           "access_pattern": "struct_field_access_write_only (in handle_error_interrupt)",
@@ -94,7 +94,7 @@
           "field_type": "i32",
           "is_pointer_field": false,
           "offset": 32,
-          "struct_name": "device_regs.13"
+          "struct_name": "device_regs"
         },
         {
           "access_pattern": "struct_field_access_pointer_read_only (in handle_rx_interrupt), handle_tx_interrupt, handle_error_interrupt",
@@ -102,15 +102,15 @@
           "field_type": "pointer",
           "is_pointer_field": true,
           "offset": 0,
-          "struct_name": "test_device.19"
+          "struct_name": "test_device"
         },
         {
           "access_pattern": "nested_struct_access_struct_read_write (in handle_rx_interrupt), handle_error_interrupt",
           "field_name": "field_1",
-          "field_type": "struct.irq_stats.14",
+          "field_type": "struct.irq_stats",
           "is_pointer_field": false,
           "offset": 8,
-          "struct_name": "test_device.19"
+          "struct_name": "test_device"
         },
         {
           "access_pattern": "struct_field_access_pointer_read_only (in handle_rx_interrupt), handle_error_interrupt",
@@ -118,7 +118,7 @@
           "field_type": "pointer",
           "is_pointer_field": true,
           "offset": 16,
-          "struct_name": "test_device.19"
+          "struct_name": "test_device"
         },
         {
           "access_pattern": "struct_field_access_pointer_read_only (in handle_tx_interrupt), handle_error_interrupt",
@@ -126,7 +126,7 @@
           "field_type": "pointer",
           "is_pointer_field": true,
           "offset": 24,
-          "struct_name": "test_device.19"
+          "struct_name": "test_device"
         },
         {
           "access_pattern": "struct_field_access_write_only (in handle_error_interrupt)",
@@ -134,7 +134,7 @@
           "field_type": "i32",
           "is_pointer_field": false,
           "offset": 48,
-          "struct_name": "test_device.19"
+          "struct_name": "test_device"
         }
       ],
       "direct_function_calls": [
@@ -169,62 +169,72 @@
         {
           "data_type": "i64",
           "is_critical": true,
-          "target_name": "unnamed_struct.buffer_info.15::field_2",
+          "struct_info": {
+            "field_name": "field_2",
+            "field_offset": 16,
+            "field_size": 8,
+            "field_type": "i64",
+            "full_path": "unknown.buffer_info::field_2",
+            "struct_name": "buffer_info"
+          },
+          "target_name": "buffer_info",
           "target_type": "struct_field",
-          "write_count": 6,
+          "write_count": 7,
           "write_locations": [
             "src/interrupt_handlers.c:93 (in handle_rx_interrupt)",
             "src/interrupt_handlers.c:115 (in handle_rx_interrupt)",
             "src/interrupt_handlers.c:116 (in handle_rx_interrupt)",
             "src/interrupt_handlers.c:156 (in handle_tx_interrupt)",
+            "src/interrupt_handlers.c:163 (in handle_tx_interrupt)",
             "src/interrupt_handlers.c:166 (in handle_tx_interrupt)",
             "src/interrupt_handlers.c:195 (in handle_error_interrupt)"
           ]
         },
         {
+          "data_type": "i32",
+          "is_critical": true,
+          "struct_info": {
+            "field_name": "field_2",
+            "field_offset": 12,
+            "field_size": 4,
+            "field_type": "i32",
+            "full_path": "unknown.device_regs::field_2",
+            "struct_name": "device_regs"
+          },
+          "target_name": "device_regs",
+          "target_type": "struct_field",
+          "write_count": 7,
+          "write_locations": [
+            "src/interrupt_handlers.c:145 (in handle_tx_interrupt)",
+            "src/interrupt_handlers.c:202 (in handle_error_interrupt)",
+            "src/interrupt_handlers.c:203 (in handle_error_interrupt)",
+            "src/interrupt_handlers.c:216 (in handle_error_interrupt)",
+            "src/interrupt_handlers.c:222 (in handle_error_interrupt)",
+            "src/interrupt_handlers.c:223 (in handle_error_interrupt)",
+            "src/interrupt_handlers.c:224 (in handle_error_interrupt)"
+          ]
+        },
+        {
           "data_type": "i64",
           "is_critical": true,
-          "target_name": "dev.test_device.19::field_1",
+          "struct_info": {
+            "field_name": "field_1",
+            "field_offset": 8,
+            "field_size": 28,
+            "field_type": "struct.irq_stats",
+            "full_path": "dev.test_device::field_1",
+            "struct_name": "test_device"
+          },
+          "target_name": "test_device",
           "target_type": "struct_field",
-          "write_count": 4,
+          "write_count": 6,
           "write_locations": [
             "src/interrupt_handlers.c:96 (in handle_rx_interrupt)",
             "src/interrupt_handlers.c:182 (in handle_error_interrupt)",
             "src/interrupt_handlers.c:183 (in handle_error_interrupt)",
-            "src/interrupt_handlers.c:184 (in handle_error_interrupt)"
-          ]
-        },
-        {
-          "data_type": "i32",
-          "is_critical": true,
-          "target_name": "dev.test_device.19::field_6",
-          "target_type": "struct_field",
-          "write_count": 2,
-          "write_locations": [
+            "src/interrupt_handlers.c:184 (in handle_error_interrupt)",
             "src/interrupt_handlers.c:201 (in handle_error_interrupt)",
             "src/interrupt_handlers.c:225 (in handle_error_interrupt)"
-          ]
-        },
-        {
-          "data_type": "i32",
-          "is_critical": true,
-          "target_name": "unnamed_struct.device_regs.13::field_0",
-          "target_type": "struct_field",
-          "write_count": 2,
-          "write_locations": [
-            "src/interrupt_handlers.c:203 (in handle_error_interrupt)",
-            "src/interrupt_handlers.c:222 (in handle_error_interrupt)"
-          ]
-        },
-        {
-          "data_type": "i32",
-          "is_critical": true,
-          "target_name": "unnamed_struct.device_regs.13::field_2",
-          "target_type": "struct_field",
-          "write_count": 2,
-          "write_locations": [
-            "src/interrupt_handlers.c:145 (in handle_tx_interrupt)",
-            "src/interrupt_handlers.c:216 (in handle_error_interrupt)"
           ]
         },
         {
@@ -268,50 +278,10 @@
           ]
         },
         {
-          "data_type": "pointer",
-          "is_critical": true,
-          "target_name": "unnamed_struct.buffer_info.15::field_3",
-          "target_type": "struct_field",
-          "write_count": 1,
-          "write_locations": [
-            "src/interrupt_handlers.c:163 (in handle_tx_interrupt)"
-          ]
-        },
-        {
           "data_type": "i32",
           "is_critical": true,
-          "target_name": "unnamed_struct.device_regs.13::field_1",
-          "target_type": "struct_field",
-          "write_count": 1,
-          "write_locations": [
-            "src/interrupt_handlers.c:223 (in handle_error_interrupt)"
-          ]
-        },
-        {
-          "data_type": "i32",
-          "is_critical": true,
-          "target_name": "unnamed_struct.device_regs.13::field_3",
-          "target_type": "struct_field",
-          "write_count": 1,
-          "write_locations": [
-            "src/interrupt_handlers.c:224 (in handle_error_interrupt)"
-          ]
-        },
-        {
-          "data_type": "i32",
-          "is_critical": true,
-          "target_name": "unnamed_struct.device_regs.13::field_4",
-          "target_type": "struct_field",
-          "write_count": 1,
-          "write_locations": [
-            "src/interrupt_handlers.c:202 (in handle_error_interrupt)"
-          ]
-        },
-        {
-          "data_type": "i32",
-          "is_critical": true,
-          "target_name": "unnamed_struct.field",
-          "target_type": "struct_field",
+          "target_name": "unknown_deref",
+          "target_type": "pointer_deref",
           "write_count": 1,
           "write_locations": [
             "src/interrupt_handlers.c:92 (in handle_rx_interrupt)"
@@ -410,7 +380,31 @@
       "source_file": "src/interrupt_handlers.c",
       "total_basic_blocks": 12,
       "total_instructions": 97
+    },
+    {
+      "analysis_complete": false,
+      "confidence_score": 0,
+      "data_structure_accesses": [],
+      "direct_function_calls": [],
+      "function_call_details": [],
+      "function_calls": 0,
+      "function_name": "unknown",
+      "function_pointer_targets": {},
+      "has_device_access": false,
+      "has_irq_operations": false,
+      "has_work_queue_ops": false,
+      "indirect_call_targets": [],
+      "indirect_calls": 0,
+      "memory_read_operations": 0,
+      "memory_write_operations": 0,
+      "memory_writes": [],
+      "modified_global_vars": [],
+      "modified_static_vars": [],
+      "module_file": "",
+      "source_file": "",
+      "total_basic_blocks": 0,
+      "total_instructions": 0
     }
   ],
-  "total_handlers": 4
+  "total_handlers": 5
 }
